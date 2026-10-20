@@ -40,7 +40,6 @@
  Target-Profile-hasImageMetadata: $(if $(foreach image,$(IMAGES),$(findstring append-metadata,$(IMAGE/$(image)))),1,0)
  Target-Profile-SupportedDevices: $(SUPPORTED_DEVICES)
  $(if $(BROKEN),Target-Profile-Broken: $(BROKEN))
-
 --- a/scripts/json_add_image_info.py
 +++ b/scripts/json_add_image_info.py
 @@ -72,6 +72,7 @@ def get_titles():
@@ -51,7 +50,6 @@
          }
      },
  }
-
 --- a/scripts/target-metadata.pl
 +++ b/scripts/target-metadata.pl
 @@ -437,6 +437,7 @@ ()
@@ -62,7 +60,6 @@
  			print $profile->{id}.'_HAS_IMAGE_METADATA:='.$profile->{has_image_metadata}."\n";
  			if (defined($profile->{supported_devices}) and @{$profile->{supported_devices}} > 0) {
  				print $profile->{id}.'_SUPPORTED_DEVICES:='.join(' ', @{$profile->{supported_devices}})."\n";
-
 --- a/scripts/metadata.pm
 +++ b/scripts/metadata.pm
 @@ -150,6 +150,7 @@ sub parse_target_metadata($) {
@@ -73,10 +70,9 @@
  		/^Target-Profile-hasImageMetadata:\s*(\d+)\s*$/ and $profile->{has_image_metadata} = $1;
  		/^Target-Profile-SupportedDevices:\s*(.+)\s*$/ and $profile->{supported_devices} = [ split(/\s+/, $1) ];
  		/^Target-Profile-Priority:\s*(\d+)\s*$/ and do {
-
 --- a/target/imagebuilder/Makefile
 +++ b/target/imagebuilder/Makefile
-@@ -39,7 +39,8 @@ $(BIN_DIR)/$(IB_NAME).tar.zst: clean
+@@ -39,6 +39,7 @@ $(BIN_DIR)/$(IB_NAME).tar.zst: clean
  		./files/Makefile \
  		$(TMP_DIR)/.targetinfo \
  		$(TMP_DIR)/.packageinfo \
@@ -85,27 +81,9 @@
 +		$(PKG_BUILD_DIR)/ || true
  
  	$(INSTALL_DIR) $(PKG_BUILD_DIR)/packages
- 
-@@ -52,12 +53,13 @@ ifneq ($(CONFIG_USE_APK),)
- 
- 	$(INSTALL_DATA) ./files/README.apk.md $(PKG_BUILD_DIR)/packages/README.md
- else
--  ifeq ($(CONFIG_IB_STANDALONE),)
- 	echo '## Remote package repositories' >> $(PKG_BUILD_DIR)/repositories.conf
- 	$(call FeedSourcesAppendOPKG,$(PKG_BUILD_DIR)/repositories.conf)
- 	$(VERSION_SED_SCRIPT) $(PKG_BUILD_DIR)/repositories.conf
- 
--  endif
-+	$(SED) 's/^src\/gz \(.*\) https.*ai\/\(.*packages.*\)/src \1 file:\/\/www\/wwwroot\/dl.openwrt.ai\/\2/' $(PKG_BUILD_DIR)/repositories.conf
-+	$(SED) 's/^src\/gz \(.*\) https.*ai\/\(.*targets.*\)/src \1 file:\/\/www\/wwwroot\/dl.openwrt.ai\/\2/' $(PKG_BUILD_DIR)/repositories.conf
-+	$(SED) '/openwrt_core/d' $(PKG_BUILD_DIR)/repositories.conf
- 
- 	# create an empty package index so `opkg` doesn't report an error
- 	touch $(PKG_BUILD_DIR)/packages/Packages
-
 --- a/target/imagebuilder/files/Makefile
 +++ b/target/imagebuilder/files/Makefile
-@@ -144,6 +144,33 @@ BUILD_PACKAGES:=$(sort $(DEFAULT_PACKAGES) $($(USER_PROFILE)_PACKAGES) kernel)
+@@ -144,6 +144,23 @@ BUILD_PACKAGES:=$(sort $(DEFAULT_PACKAGES) $($(USER_PROFILE)_PACKAGES) kernel)
  # "-pkgname" in the package list means remove "pkgname" from the package list
  BUILD_PACKAGES:=$(filter-out $(filter -%,$(BUILD_PACKAGES)) $(patsubst -%,%,$(filter -%,$(BUILD_PACKAGES))),$(BUILD_PACKAGES))
  BUILD_PACKAGES:=$(USER_PACKAGES) $(BUILD_PACKAGES)
@@ -123,33 +101,12 @@
 +		BUILD_PACKAGES += automount luci-app-diskman
 +	endif
 +endif
-+ifeq ($(SMALL_FLASH),true)
-+	ifeq ($(shell grep -q small_flash $(TOPDIR)/repositories.conf || echo "not_found"),not_found)
-+        $(shell echo "`grep kwrt_kiddin9 $(TOPDIR)/repositories.conf | sed -e 's/kiddin9/small_flash/g'`" >>$(TOPDIR)/repositories.conf)
-+	endif
-+	ifneq ($(findstring /www/wwwroot/,$(BIN_DIR)),)
-+		BUILD_PACKAGES += -luci-app-istorex -htop -bash -openssh-sftp-server -luci-nginx luci-ssl
-+	endif
-+else
-+        $(shell sed -i "/small_flash/d" $(TOPDIR)/repositories.conf)
-+endif
 +define add_zh_cn_packages
 +$(eval BUILD_PACKAGES += $(foreach pkg,$(BUILD_PACKAGES),$(if $(and $(filter luci-app-%,$(pkg)),$(shell $(OPKG) list | grep -q "^luci-i18n-$(patsubst luci-app-%,%,$(pkg))-zh-cn" && echo 1)),luci-i18n-$(patsubst luci-app-%,%,$(pkg))-zh-cn)))
 +endef
  BUILD_PACKAGES:=$(filter-out $(filter -%,$(BUILD_PACKAGES)) $(patsubst -%,%,$(filter -%,$(BUILD_PACKAGES))),$(BUILD_PACKAGES))
  
  ifneq ($(CONFIG_USE_APK),)
-@@ -184,7 +211,10 @@ _call_image: staging_dir/host/.prereq-build
- 	$(MAKE) -s prepare_rootfs
- 	$(MAKE) -s build_image
- 	$(MAKE) -s json_overview_image_info
-+ifeq ($(findstring /www/wwwroot/,$(BIN_DIR)),)
- 	$(MAKE) -s checksum
-+endif
-+	rm -rf $(KERNEL_BUILD_DIR)/tmp $(KERNEL_BUILD_DIR)/root.* $(TARGET_DIR) $(TARGET_DIR_ORIG)
- 
- _call_manifest: FORCE
- 	rm -rf $(TARGET_DIR)
 @@ -251,9 +281,17 @@ package_install: FORCE
  	@echo
  	@echo Installing packages...
@@ -169,13 +126,10 @@
  else
  	$(eval BUILD_PACKAGES:=$(call FormatPackages,$(BUILD_PACKAGES)))
  	$(APK) add --arch $(ARCH_PACKAGES) --no-scripts $(BUILD_PACKAGES)
-@@ -280,16 +318,19 @@ else
+@@ -280,16 +318,16 @@ else
  	)
  endif
  	$(call prepare_rootfs,$(TARGET_DIR),$(USER_FILES),$(DISABLED_SERVICES))
-+	$(if $(SMALL_FLASH), \
-+        $(shell echo "`grep kwrt_kiddin9 $(TOPDIR)/repositories.conf | sed -e 's/kiddin9/small_flash/g'`" >>$(BUILD_DIR)/root-*/etc/opkg/distfeeds.conf) \
-+	)
  
  build_image: FORCE
  	@echo

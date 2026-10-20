@@ -1,7 +1,0 @@
-#!/bin/sh
-# zram 虚拟内存：2G，lz4 压缩
-# 512MB 物理内存下，zram 用压缩 swap 换取 4 倍左右的可用内存，
-# 代价是 CPU 压缩/解压开销；lz4 比 lzo/zstd 更快，适合路由器这种小核 CPU。
-uci -q get system.@system[0].zram_size_mb >/dev/null || uci set system.@system[0].zram_size_mb='2048'
-uci set system.@system[0].zram_comp_algo='lz4'
-uci commit system
