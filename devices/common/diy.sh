@@ -69,6 +69,59 @@ case "$date" in
 esac
 sed -i -e "/\(# \)\?REVISION:=/c\REVISION:=$date" -e '/VERSION_CODE:=/c\VERSION_CODE:=$(REVISION)' include/version.mk
 
+# ---------------------------------------------------------------------------
+# apk 版本号合法性预检
+#
+# opkg 把版本号当普通字符串，apk 则会用严格的词法分析（Alpine apk-tools
+# src/version.c 的 token_next()），非法版本号会在打包阶段才炸，白等几小时。
+# 规则（见 version.c）：
+#   1. '~' 后只能跟十六进制字符 [0-9a-fA-F] 且非空（TOKEN_COMMIT_HASH）
+#   2. '-rN' 只能出现一次，且必须是版本串的最后一段（TOKEN_REVISION_NO）
+#   3. '.' 只能跟在数字段后面（不能开头、不能连续、不能结尾）
+#
+# 打包时 openwrt 用的是 "$(PKG_VERSION)-r$(PKG_RELEASE)"，因此
+# PKG_VERSION 里若自带 '-rN' 就会拼出 '1.0.0-r3-r1' 这种双 -r 非法串。
+# 这里在编译开始前扫一遍所有包的 PKG_VERSION，命中就直接退出，
+# 避免又跑完三小时才在某个包上失败。
+# ---------------------------------------------------------------------------
+apk_version_check() {
+	bad=0
+	for mk in $(find package feeds -name Makefile 2>/dev/null); do
+		# 取第一个 PKG_VERSION:=（跳过注释行与 $(...) 变量引用）
+		v=$(sed -n 's/^[[:space:]]*PKG_VERSION:[[:space:]]*=[[:space:]]*\(.\+\)$/\1/p' "$mk" | head -n1)
+		[ -z "$v" ] && continue
+		case "$v" in *'$'*) continue ;; esac
+		why=
+		case "$v" in
+			*' '*|*'/'*|*':'*) why="含非法字符（空格/斜杠/冒号）" ;;
+			*'..'*|.*|*.) why="'.' 位置非法" ;;
+			*'~') why="'~' 后为空" ;;
+		esac
+		[ -z "$why" ] && case "$v" in
+			*'~'*) # '~' 之后必须全是十六进制字符
+				tail=${v##*~}
+				case "$tail" in *[!0-9a-fA-F]*) why="'~' 后含非十六进制字符（如日期里的点号）" ;; esac ;;
+		esac
+		[ -z "$why" ] && case "$v" in
+			*-r[0-9]*) # PKG_VERSION 里出现 '-rN'
+				rest=${v#*-r}
+				case "$rest" in
+					*-r[0-9]*) why="'-rN' 出现多次（打包会拼成 X-rN-rM）" ;;
+					[0-9]*) why="PKG_VERSION 自带 '-rN'，打包会再拼一次成 '-rN-rM'；请把 N 挪到 PKG_RELEASE" ;;
+				esac ;;
+		esac
+		if [ -n "$why" ]; then
+			echo "ERROR: $mk 的 PKG_VERSION='$v' 会被 apk 拒绝：$why" >&2
+			bad=1
+		fi
+	done
+	if [ "$bad" = 1 ]; then
+		echo "ERROR: 存在 apk 无法解析的包版本号，编译必失败。请修正上面的包后重试。" >&2
+		exit 1
+	fi
+}
+apk_version_check
+
 sed -i 's/option timeout 30/option timeout 120/g' package/system/rpcd/files/rpcd.config
 
 sed -i "s/OpenWrt/OpenWrt/g" package/base-files/files/bin/config_generate 2>/dev/null || true

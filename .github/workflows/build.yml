@@ -178,9 +178,18 @@ jobs:
         df -hT
         cd openwrt
         echo -e "$(($(nproc)+1)) thread compile"
-        set +e
-        make -j$(($(nproc)+1)) || { log=$(mktemp); make V=s &>$log; tail -50 $log; }
-        make_rc=$?
+        # 注意：不能写 `make ... || { ...; }` 再取 $?，因为 $? 会变成花括号块的退出码。
+        # 这里显式记录 make 的返回码，失败时再用 V=s 单线程复跑一段取详细日志。
+        make_rc=0
+        make -j$(($(nproc)+1)) || make_rc=$?
+        if [ "$make_rc" != 0 ]; then
+          echo "::warning::并行编译失败（rc=$make_rc），改用 V=s 单线程复跑以获取详细报错"
+          log=$(mktemp)
+          make V=s &>$log || true
+          echo "===== 详细日志最后 80 行 ====="
+          tail -80 $log
+          echo "===== 日志结束 ====="
+        fi
         echo "MAKE_RC=$make_rc" >> $GITHUB_ENV
         rm -rf staging_dir/toolchain-*/bin/*openwrt-linux-musl-lto-dump
         rm -rf staging_dir/toolchain-*/initial
@@ -196,11 +205,17 @@ jobs:
         shopt -s extglob
         cd openwrt
         ls -lh bin/targets/*/*/ || true
+        ok=1
+        [ "${MAKE_RC:-0}" = "0" ] || { echo "::error::make 以非 0 退出（MAKE_RC=$MAKE_RC）"; ok=0; }
         if compgen -G "bin/targets/*/*/*sysupgrade.bin" >/dev/null; then
           echo "构建成功：找到 sysupgrade.bin"
+        else
+          echo "::error::构建失败：未在 bin/targets 下找到 sysupgrade.bin（make 退出码 ${MAKE_RC:-?}）"
+          ok=0
+        fi
+        if [ "$ok" = 1 ]; then
           echo "BUILD_OK=true" >> $GITHUB_ENV
         else
-          echo "::error::构建失败：未在 bin/targets 下找到 sysupgrade.bin（make 退出码 $MAKE_RC）"
           echo "BUILD_OK=false" >> $GITHUB_ENV
           exit 1
         fi
