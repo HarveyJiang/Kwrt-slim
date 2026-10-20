@@ -1,37 +1,35 @@
-#### 固件下载与在线定制: [openwrt.ai](https://openwrt.ai)
+# Kwrt-slim
 
-### openwrt 软路由固件
+精简版 [Kwrt](https://github.com/kiddin9/Kwrt)，只编译 **京东云亚瑟 AX1800 Pro（JDCloud RE-SS-01）** 一个机型。
 
-#### 基于官方openwrt-25.12最新稳定分支, 并基于国内使用喜欢做大量优化
+## 结构
 
-#### 原生极致纯净, 固件默认只包含基础上网功能, 后台在线选装插件, 或在线定制包含指定插件的固件
+```
+devices/
+├── common/                    # 公共层（feeds、补丁、通用 .config）
+│   ├── settings.ini           # openwrt 源码地址与分支策略
+│   ├── .config                # 通用配置
+│   ├── diy.sh                 # 公共定制脚本
+│   ├── patches/               # 公共补丁
+│   └── diy/                   # 公共覆盖文件
+└── qualcommax_ipq60xx/        # 目标平台层
+    ├── .config                # 平台 + 单设备选择
+    ├── diy.sh                 # NSS 化脚本
+    └── patches/               # 平台补丁
+```
 
-#### 自建在线插件仓库 [dl.openwrt.ai](https://dl.openwrt.ai), 额外收录三方插件1000+, 插件库日更
+## 编译
 
-##### TG群: [Kwrt交流群](https://t.me/opkwrt)
+Actions → Build OpenWrt → Run workflow（手动触发，无参数）。
 
-<img src="assets/p1.png" alt="" width="800">
+## 刷机
 
-<img src="assets/p2.png" alt="" width="800">
+- **U-Boot 刷入**：用 `*-factory.bin`（或 `*-initramfs` 先引导再 sysupgrade），注意 U-Boot 对固件体积有限制，固件需控制在 60MB 以内。
+- **后台升级**：用 `*-sysupgrade.bin`。
+- 默认 LAN IP `10.0.0.1`，root 无密码。
 
-<img src="assets/p3.png" alt="" width="800">
+## 说明
 
-<img src="assets/p4.png" alt="" width="800">
-
-<img src="assets/p5.png" alt="" width="800">
-
-
-## Acknowledgments
-
-- [OpenWrt](https://github.com/openwrt/openwrt)
-- [Lean's OpenWrt](https://github.com/coolsnowwolf/lede)
-- [ImmortalWrt](https://github.com/immortalwrt/immortalwrt)
-- [iStoreOS](https://github.com/istoreos)
-- [unifreq](https://github.com/unifreq/openwrt_packit)
-- [ophub](https://github.com/ophub/amlogic-s9xxx-openwrt)
-- [hanwckf](https://github.com/hanwckf/immortalwrt-mt798x)
-- [aparcar](https://github.com/openwrt/asu)
-- [GitHub](https://github.com)
-- [GitHub Actions](https://github.com/features/actions)
-
-
+- target：`qualcommax/ipq60xx`，device：`jdcloud_re-ss-01`（ipq6000，DEVICE_DTS_CONFIG `config@cp03-c2`）。
+- 校准数据 `board-jdcloud_re-ss-01.ipq6018` 由上游 `firmware_qca-wireless` 源码自带。
+- 无线走 NSS 方案（LiBwrt/openwrt-6.x `25.12-nss`）。
