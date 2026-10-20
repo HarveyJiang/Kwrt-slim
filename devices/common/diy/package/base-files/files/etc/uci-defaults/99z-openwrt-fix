@@ -1,9 +1,9 @@
 #!/bin/sh
-# Kwrt-slim 首启修正（zram / root 密码 / UPnP / passwall 死链接）
+# 首启修正（zram / root 密码 / UPnP / passwall 死链接）
 #
 # 文件名 99z- 前缀是刻意的：OpenWrt 在 /etc/uci-defaults 下用
 #   files="$(ls)"; for file in $files
-# 即字母序执行，因此 99z-kwrt-fix 排在 my-default-settings 的
+# 即字母序执行，因此 99z-openwrt-fix 排在 my-default-settings 的
 # 99-default-settings 之后（'9'=0x39 < 'z'=0x7a），能在它之后覆盖设置。
 
 # ---------------------------------------------------------------
