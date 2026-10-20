@@ -168,18 +168,46 @@ jobs:
 
     - name: Compile the firmware
       id: compile
+      # 故意吞掉 make 的失败退出码：即使编译失败，本步骤也返回成功，
+      # 这样 Cache action 的 post-if: success() 才能执行并保存缓存，
+      # 下次触发就能续上已编译的 tools/toolchain，而不是从零重来。
+      # 真正的判定放在下一步 Verify build output。
+      continue-on-error: true
       run: |
         shopt -s extglob
         df -hT
         cd openwrt
         echo -e "$(($(nproc)+1)) thread compile"
-        make -j$(($(nproc)+1)) || { log=$(mktemp);make V=s &>$log; } || { tail -50 $log;df -hT;exit 1; }
+        set +e
+        make -j$(($(nproc)+1)) || { log=$(mktemp); make V=s &>$log; tail -50 $log; }
+        make_rc=$?
+        echo "MAKE_RC=$make_rc" >> $GITHUB_ENV
         rm -rf staging_dir/toolchain-*/bin/*openwrt-linux-musl-lto-dump
         rm -rf staging_dir/toolchain-*/initial
         df -hT
+        echo "make 退出码: $make_rc（0 为成功；非 0 时由 Verify build output 步骤判定失败）"
+        exit 0
+
+    - name: Verify build output
+      id: verify
+      # 上一步吞掉了失败码，这里做真正的判定：产物不存在就让 job 失败。
+      # 顺序上必须排在 Cache(Post) 之前执行完毕，缓存才会被保存。
+      run: |
+        shopt -s extglob
+        cd openwrt
+        ls -lh bin/targets/*/*/ || true
+        if compgen -G "bin/targets/*/*/*sysupgrade.bin" >/dev/null; then
+          echo "构建成功：找到 sysupgrade.bin"
+          echo "BUILD_OK=true" >> $GITHUB_ENV
+        else
+          echo "::error::构建失败：未在 bin/targets 下找到 sysupgrade.bin（make 退出码 $MAKE_RC）"
+          echo "BUILD_OK=false" >> $GITHUB_ENV
+          exit 1
+        fi
 
     - name: Organize files
       id: organize
+      if: env.BUILD_OK == 'true'
       continue-on-error: true
       run: |
         shopt -s extglob
@@ -189,7 +217,7 @@ jobs:
 
     - name: Upload firmware for artifact
       uses: actions/upload-artifact@main
-      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true'
+      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true' && env.BUILD_OK == 'true'
       with:
         name: ${{ env.VERSION }}_qualcommax_ipq60xx
         path: |
