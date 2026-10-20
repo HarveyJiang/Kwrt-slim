@@ -1,5 +1,5 @@
 #!/bin/sh
-# 首启修正（zram / root 密码 / UPnP / passwall 死链接）
+# 首启修正（zram / root 密码 / UPnP / passwall 死链接 / xray 自启）
 #
 # 文件名 99z- 前缀是刻意的：OpenWrt 在 /etc/uci-defaults 下用
 #   files="$(ls)"; for file in $files
@@ -43,5 +43,14 @@ done
 uci -q commit system
 uci -q commit upnpd
 uci -q commit dhcp
+
+# ---------------------------------------------------------------
+# 5) xray 开机自启
+#    xray-core 包只装二进制，init 脚本与默认配置由本固件的 base-files 提供。
+#    脚本自身有守卫：/etc/xray/config.json 不存在时不会启动，所以这里直接
+#    enable 是安全的；用户改好配置后重启即生效（或手动 service xray start）。
+# ---------------------------------------------------------------
+mkdir -p /var/log/xray
+/etc/init.d/xray enable 2>/dev/null
 
 exit 0
