@@ -133,35 +133,57 @@ apk_version_why() {
 				[0-9]*) echo "PKG_VERSION 自带 '-rN'，打包会再拼一次成 '-rN-rM'；请把 N 挪到 PKG_RELEASE"; return 1 ;;
 			esac ;;
 	esac
-	# 必须以数字开头（apk 要求 TOKEN_INITIAL_DIGIT）
-	case "$v" in
-		[0-9]*) : ;;
-		*) echo "版本号必须以数字开头"; return 1 ;;
-	esac
+	# 注意：不要要求'必须以数字开头'。apk 的 token_first 允许首个 token 是字母
+	# （上游 at91bootstrap 就是 PKG_VERSION:=v4.0.10，uboot-at91 是
+	# linux4sam-2022.04，官方 apk 分支照常出包），据 version.c 的
+	# apk_version_validate 只要求词法分析能走到 TOKEN_END。
 	return 0
 }
 
 apk_version_check() {
-	local bad=0 v why fn
+	local bad=0 v why mk dir
+	# 只检查真正会被编译的包：我们内置的包（devices/common/diy/package 已拷到
+	# package/ 顶层）与 .config 里选中的包。全量扫 feeds/ 会把别的 target 的包
+	# （如 at91bootstrap / uboot-at91）也算进来，它们跟我们无关。
+	local selected=""
+	if [ -f .config ]; then
+		selected=$(grep -E '^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y$' .config 2>/dev/null \
+			| sed -e 's/^CONFIG_PACKAGE_//' -e 's/=y$//' | tr '\n' ' ')
+	fi
+	# 我们自建的包目录名单（package/ 下一层即包名目录）
+	# 注意：必须 tr 成空格分隔，否则 case 的 *" $name "* 匹配不上换行分隔的串
+	local own="$(ls -d package/*/ 2>/dev/null | sed 's|^package/||; s|/$||' | tr '\n' ' ')"
+
+	is_relevant() {
+		local name="$1"
+		# 内置包
+		case " $own " in *" $name "*) return 0 ;; esac
+		# .config 选中的包
+		case " $selected " in *" $name "*) return 0 ;; esac
+		# 与本次 target 相关的目录（package/kernel、package/firmware 等由 target 决定）
+		return 1
+	}
+
 	# 1) 显式写了 PKG_VERSION 的包
-	for mk in $(find package feeds -name Makefile 2>/dev/null); do
+	for mk in $(find package -name Makefile 2>/dev/null); do
 		v=$(sed -n 's/^[[:space:]]*PKG_VERSION:[[:space:]]*=[[:space:]]*\(.\+\)$/\1/p' "$mk" | head -n1)
 		[ -z "$v" ] && continue
-		# 引用变量的（如 $(FOOTSTRAP_VERSION)）无法静态求值，先跳过
-		case "$v" in *'$'*)
-			echo "SKIP: $mk 的 PKG_VERSION='$v' 由变量拼出，无法静态校验" >&2
-			continue ;;
-		esac
+		# 引用变量的（如 $(FOOTSTRAP_VERSION)）无法静态求值，跳过
+		case "$v" in *'$'*) continue ;; esac
+		# 不在本次编译范围内的包不检查
+		dir=$(dirname "$mk"); name=$(basename "$dir")
+		is_relevant "$name" || continue
 		if why=$(apk_version_why "$v"); then :; else
 			echo "ERROR: $mk 的 PKG_VERSION='$v' 会被 apk 拒绝：$why" >&2
 			bad=1
 		fi
 	done
 	# 2) 没有 PKG_VERSION 但用了 luci.mk 的包，版本由 findrev 生成
-	for mk in $(find package feeds -name Makefile 2>/dev/null); do
+	for mk in $(find package -name Makefile 2>/dev/null); do
 		grep -q 'PKG_VERSION[[:space:]]*:=' "$mk" && continue
-		grep -q 'feeds/luci/luci.mk\|luci.mk' "$mk" || continue
-		dir=$(dirname "$mk")
+		grep -q 'luci\.mk' "$mk" || continue
+		dir=$(dirname "$mk"); name=$(basename "$dir")
+		is_relevant "$name" || continue
 		v=$(luci_findrev "$dir")
 		if why=$(apk_version_why "$v"); then
 			echo "OK(findrev): $mk -> $v"
