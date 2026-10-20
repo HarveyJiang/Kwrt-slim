@@ -46,11 +46,23 @@ uci -q commit dhcp
 
 # ---------------------------------------------------------------
 # 5) xray 开机自启
-#    xray-core 包只装二进制，init 脚本与默认配置由本固件的 base-files 提供。
-#    脚本自身有守卫：/etc/xray/config.json 不存在时不会启动，所以这里直接
-#    enable 是安全的；用户改好配置后重启即生效（或手动 service xray start）。
+#    官方 xray-core 包自带 /etc/init.d/xray 与 /etc/config/xray（UCI），
+#    其 init 脚本读 `xray.enabled.enabled`，默认是 0（关闭），开启后按
+#    /etc/config/xray 的列表加载 /etc/xray/config.json。
+#
+#    注意：本固件的 base-files 曾自带一份 /etc/init.d/xray，与官方包
+#    争抢同一路径，导致 apk 在 package/install 阶段报
+#      ERROR: xray-core: trying to overwrite etc/init.d/xray owned by base-files
+#    并中断整个编译。已删除内置脚本，改用官方 init + UCI 开关。
+# ---------------------------------------------------------------
+uci -q set xray.enabled.enabled='1'
+uci -q commit xray
+
+# ---------------------------------------------------------------
+# 6) xray 日志目录
+#    内置的 /etc/xray/config.json 把 error 日志写到 /var/log/xray/error.log，
+#    xray 不会自建目录，缺失时会启动失败。
 # ---------------------------------------------------------------
 mkdir -p /var/log/xray
-/etc/init.d/xray enable 2>/dev/null
 
 exit 0
