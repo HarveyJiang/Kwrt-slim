@@ -58,7 +58,15 @@ sed -i 's/max_requests 3/max_requests 20/g' package/network/services/uhttpd/file
 #rm -rf ./feeds/packages/lang/{golang,node}
 sed -i "s/tty\(0\|1\)::askfirst/tty\1::respawn/g" target/linux/*/base-files/etc/inittab
 
-date=`date +%m.%d.%Y`
+# 版本号：apk 的版本语法（Alpine apk-tools src/version.c）规定 '~' 之后只能
+# 跟十六进制字符 [0-9a-fA-F] 且不能为空，遇到 '.' 会直接判 INVALID，
+# 于是 '1719~10.20.2026' 会让 apk mkpkg 报 "package version is invalid" 而编译失败。
+# 所以这里只生成纯数字日期段（如 1719~20261020）。要显示完整日期请用
+# VERSION_NUMBER（仅展示，不参与 apk 版本解析），不要往 REVISION 里塞点号。
+date=`date +%Y%m%d`
+case "$date" in
+	*[!0-9]*) echo "ERROR: 生成的版本日期 '$date' 含非数字字符，apk 会拒绝该版本号" >&2; exit 1 ;;
+esac
 sed -i -e "/\(# \)\?REVISION:=/c\REVISION:=$date" -e '/VERSION_CODE:=/c\VERSION_CODE:=$(REVISION)' include/version.mk
 
 sed -i 's/option timeout 30/option timeout 120/g' package/system/rpcd/files/rpcd.config
