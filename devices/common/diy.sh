@@ -81,37 +81,92 @@ sed -i -e "/\(# \)\?REVISION:=/c\REVISION:=$date" -e '/VERSION_CODE:=/c\VERSION_
 #
 # 打包时 openwrt 用的是 "$(PKG_VERSION)-r$(PKG_RELEASE)"，因此
 # PKG_VERSION 里若自带 '-rN' 就会拼出 '1.0.0-r3-r1' 这种双 -r 非法串。
-# 这里在编译开始前扫一遍所有包的 PKG_VERSION，命中就直接退出，
-# 避免又跑完三小时才在某个包上失败。
+# 另外没有显式 PKG_VERSION 的包（luci-app-syscontrol/wizard/luci-nginx 等）
+# 版本号由 feeds/luci/luci.mk 的 findrev 生成，这里也一并演算校验。
+# 在编译开始前扫一遍，命中就直接退出，避免跑完三小时才在某个包上失败。
 # ---------------------------------------------------------------------------
+
+# 与 feeds/luci/luci.mk 的 findrev 保持一致：
+#   有 .git -> <yday>.<secs%86400 五位>~<7位短hash>
+#   无 .git -> 0.<YYmmdd>.<mtime%86400 五位>
+luci_findrev() {
+	if git -C "$1" log -1 >/dev/null 2>&1; then
+		set -- $(git -C "$1" log -1 --format="%ct %h" --abbrev=7 -- . ':(exclude)po' 2>/dev/null)
+		if [ -n "$1" ]; then
+			secs=$(( $1 % 86400 ))
+			yday=$(date --utc --date="@$1" "+%y.%j")
+			printf '%s.%05d~%s' "$yday" "$secs" "$2"
+			return
+		fi
+		echo 0
+		return
+	fi
+	local ts
+	ts=$(find "$1" -type f -not -path "*/po/*" -printf '%T@\n' 2>/dev/null | sort -rn | head -n1 | cut -d. -f1)
+	if [ -n "$ts" ]; then
+		secs=$(( ts % 86400 ))
+		d=$(date --utc --date="@$ts" "+%y%m%d")
+		printf '0.%s.%05d' "$d" "$secs"
+		return
+	fi
+	echo 0
+}
+
+# 校验一个版本串是否会被 apk 接受；不合法则 echo 原因并 return 1
+apk_version_why() {
+	local v="$1" why=
+	case "$v" in
+		*' '*|*'/'*|*':'*|*'"'*) echo "含非法字符（空格/斜杠/冒号/引号）"; return 1 ;;
+		*'..'*|.*|*.) echo "'.' 位置非法（开头/连续/结尾）"; return 1 ;;
+		*'~') echo "'~' 后为空"; return 1 ;;
+	esac
+	case "$v" in
+		*'~'*)
+			local tail=${v##*~}
+			case "$tail" in *[!0-9a-fA-F]*) echo "'~' 后含非十六进制字符（如日期里的点号）"; return 1 ;; esac ;;
+	esac
+	case "$v" in
+		*-r[0-9]*)
+			local rest=${v#*-r}
+			case "$rest" in
+				*-r[0-9]*) echo "'-rN' 出现多次（打包会拼成 X-rN-rM）"; return 1 ;;
+				[0-9]*) echo "PKG_VERSION 自带 '-rN'，打包会再拼一次成 '-rN-rM'；请把 N 挪到 PKG_RELEASE"; return 1 ;;
+			esac ;;
+	esac
+	# 必须以数字开头（apk 要求 TOKEN_INITIAL_DIGIT）
+	case "$v" in
+		[0-9]*) : ;;
+		*) echo "版本号必须以数字开头"; return 1 ;;
+	esac
+	return 0
+}
+
 apk_version_check() {
-	bad=0
+	local bad=0 v why fn
+	# 1) 显式写了 PKG_VERSION 的包
 	for mk in $(find package feeds -name Makefile 2>/dev/null); do
-		# 取第一个 PKG_VERSION:=（跳过注释行与 $(...) 变量引用）
 		v=$(sed -n 's/^[[:space:]]*PKG_VERSION:[[:space:]]*=[[:space:]]*\(.\+\)$/\1/p' "$mk" | head -n1)
 		[ -z "$v" ] && continue
-		case "$v" in *'$'*) continue ;; esac
-		why=
-		case "$v" in
-			*' '*|*'/'*|*':'*) why="含非法字符（空格/斜杠/冒号）" ;;
-			*'..'*|.*|*.) why="'.' 位置非法" ;;
-			*'~') why="'~' 后为空" ;;
+		# 引用变量的（如 $(FOOTSTRAP_VERSION)）无法静态求值，先跳过
+		case "$v" in *'$'*)
+			echo "SKIP: $mk 的 PKG_VERSION='$v' 由变量拼出，无法静态校验" >&2
+			continue ;;
 		esac
-		[ -z "$why" ] && case "$v" in
-			*'~'*) # '~' 之后必须全是十六进制字符
-				tail=${v##*~}
-				case "$tail" in *[!0-9a-fA-F]*) why="'~' 后含非十六进制字符（如日期里的点号）" ;; esac ;;
-		esac
-		[ -z "$why" ] && case "$v" in
-			*-r[0-9]*) # PKG_VERSION 里出现 '-rN'
-				rest=${v#*-r}
-				case "$rest" in
-					*-r[0-9]*) why="'-rN' 出现多次（打包会拼成 X-rN-rM）" ;;
-					[0-9]*) why="PKG_VERSION 自带 '-rN'，打包会再拼一次成 '-rN-rM'；请把 N 挪到 PKG_RELEASE" ;;
-				esac ;;
-		esac
-		if [ -n "$why" ]; then
+		if why=$(apk_version_why "$v"); then :; else
 			echo "ERROR: $mk 的 PKG_VERSION='$v' 会被 apk 拒绝：$why" >&2
+			bad=1
+		fi
+	done
+	# 2) 没有 PKG_VERSION 但用了 luci.mk 的包，版本由 findrev 生成
+	for mk in $(find package feeds -name Makefile 2>/dev/null); do
+		grep -q 'PKG_VERSION[[:space:]]*:=' "$mk" && continue
+		grep -q 'feeds/luci/luci.mk\|luci.mk' "$mk" || continue
+		dir=$(dirname "$mk")
+		v=$(luci_findrev "$dir")
+		if why=$(apk_version_why "$v"); then
+			echo "OK(findrev): $mk -> $v"
+		else
+			echo "ERROR: $mk 无 PKG_VERSION，findrev 生成的版本 '$v' 会被 apk 拒绝：$why" >&2
 			bad=1
 		fi
 	done
@@ -119,6 +174,7 @@ apk_version_check() {
 		echo "ERROR: 存在 apk 无法解析的包版本号，编译必失败。请修正上面的包后重试。" >&2
 		exit 1
 	fi
+	echo "apk 版本号预检通过"
 }
 apk_version_check
 
