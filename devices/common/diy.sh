@@ -34,8 +34,20 @@ wget -N https://github.com/immortalwrt/immortalwrt/raw/refs/heads/openwrt-25.12/
 wget -N  https://github.com/coolsnowwolf/lede/raw/refs/heads/master/package/system/fstools/patches/0200-ntfs3-with-utf8.patch -P package/system/fstools/patches/
 wget -N https://github.com/immortalwrt/immortalwrt/raw/refs/heads/openwrt-25.12/config/Config-kernel.in -P config/
 
-rm -rf package/libs/openssl package/network/services/ppp
-git_clone_path openwrt-25.12 https://github.com/immortalwrt/immortalwrt package/libs/openssl package/network/services/ppp
+# immortalwrt 的 ppp 带 512-syncppp.patch（并发拨号同步），它的 DEPENDS 里有
+# +shellsync，files/ppp.sh 里也会调用 shellsync 命令。shellsync 只存在于
+# immortalwrt 树中（package/network/services/shellsync），openwrt-25.12 没有这个包。
+# 之前只导入 ppp 不导入 shellsync，apk 安装阶段会直接失败：
+#   ERROR: unable to select packages:
+#     shellsync (no such package):
+#       required by: ppp-2.5.2-r4[shellsync]
+#   make[2]: *** [package/Makefile:100: package/install] Error 2
+# 导致 make 在 package/install 阶段退出，整个编译白跑三小时。
+# 所以必须把 shellsync 和 ppp 一起导入。
+# shellsync 依赖 libpthread（package/libs/toolchain/Makefile 里定义）和
+# kmod-macvlan（package/kernel/linux/modules/netdevices.mk 里定义），两个都存在。
+rm -rf package/libs/openssl package/network/services/ppp package/network/services/shellsync
+git_clone_path openwrt-25.12 https://github.com/immortalwrt/immortalwrt package/libs/openssl package/network/services/ppp package/network/services/shellsync
 
 echo "$(date +"%s")" >version.date
 sed -i "s/DEFAULT_PACKAGES:=/DEFAULT_PACKAGES:=luci-app-advancedplus luci-app-sysctl luci-app-firewall luci-app-package-manager luci-app-upnp luci-app-syscontrol \
