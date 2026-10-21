@@ -26,6 +26,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # GitHub 托管 runner 的默认 job 上限是 6 小时（360 分钟），单线程 MAKE_JOBS=1
+    # 的一次全量编译（工具链 3h+ + 内核 1h+ + packages 2h+ + 镜像）明显超过 6 小时，
+    # 会被硬砍成 failure/cancelled，而且被砍时「失败也存工具链缓存」那一步来不及执行，
+    # 下一次又得从零编译工具链。这里放宽到 12 小时。
+    timeout-minutes: 720
+
     name: Build qualcommax_ipq60xx
 
     steps:
