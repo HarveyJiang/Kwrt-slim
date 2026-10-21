@@ -1,0 +1,145 @@
+#=================================================
+# 把某个已完成 run 的大 artifact 拆成多个小 artifact。
+#
+# 为什么需要：build.yml 现在直接按用途分组上传（每个几十~几百 MB），
+# 但改动之前那几轮编译产出的仍是「整个 bin/targets/ 打成 1 个包」（1.2GB+），
+# 用户想只下一个文件也得整包下。这个 workflow 可以给历史 run 补拆，
+# 不用重新编译（重新编译一次要 2.5 小时）。
+#
+# 用法：Actions 页面手动触发，填源 run id（可选：源 artifact 名、前缀）
+#=================================================
+
+name: Split artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: '源 run id（要重新分组的编译 run）'
+        required: true
+      artifact_name:
+        description: '源 artifact 名（留空 = 自动取该 run 里最大的 artifact）'
+        required: false
+        default: ''
+      prefix:
+        description: '新 artifact 名前缀（留空 = 自动取源 artifact 名的版本前缀）'
+        required: false
+        default: ''
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    name: Split artifacts of run ${{ inputs.run_id }}
+
+    steps:
+    - name: Free disk space
+      uses: coder-xiaomo/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
+    - name: Checkout
+      uses: actions/checkout@main
+
+    - name: Download source artifact
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RUN_ID: ${{ inputs.run_id }}
+        ARTIFACT_NAME: ${{ inputs.artifact_name }}
+      run: |
+        set -euo pipefail
+        mkdir -p src
+        if [ -n "$ARTIFACT_NAME" ]; then
+          aid="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+                 --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id" | head -n1)"
+        else
+          aid="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+                 --jq '.artifacts | map(select(.expired == false)) | sort_by(.size_in_bytes) | last | .id')"
+        fi
+        if [ -z "$aid" ] || [ "$aid" = "null" ]; then
+          echo "::error::在 run $RUN_ID 里没找到 artifact（指定名：$ARTIFACT_NAME）"
+          exit 1
+        fi
+        aname="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$aid" --jq '.name')"
+        echo "源 artifact: id=$aid name=$aname"
+        curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+          "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$aid/zip" \
+          -o src/artifact.zip
+        ls -lh src/artifact.zip
+        unzip -q src/artifact.zip -d src/out
+        # 前缀：源 artifact 名里第一个下划线之前的部分（10.22_xxx -> 10.22）
+        prefix="${{ inputs.prefix }}"
+        if [ -z "$prefix" ]; then
+          prefix="${aname%%_*}"
+        fi
+        echo "PREFIX=$prefix" >> $GITHUB_ENV
+        echo "ARTIFACT_ID=$aid" >> $GITHUB_ENV
+        echo "SOURCE_NAME=$aname" >> $GITHUB_ENV
+        find src/out -maxdepth 3 -type d | head -20
+
+    - name: Split into groups
+      run: |
+        chmod +x .github/scripts/split-artifacts.sh
+        .github/scripts/split-artifacts.sh src/out "$GITHUB_WORKSPACE/artifacts"
+
+    - name: Upload firmware-sysupgrade
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.PREFIX }}-firmware-sysupgrade
+        path: artifacts/firmware-sysupgrade/
+        if-no-files-found: ignore
+
+    - name: Upload firmware-factory
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.PREFIX }}-firmware-factory
+        path: artifacts/firmware-factory/
+        if-no-files-found: ignore
+
+    - name: Upload firmware-initramfs
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.PREFIX }}-firmware-initramfs
+        path: artifacts/firmware-initramfs/
+        if-no-files-found: ignore
+
+    - name: Upload imagebuilder
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.PREFIX }}-imagebuilder
+        path: artifacts/imagebuilder/
+        if-no-files-found: ignore
+
+    - name: Upload packages
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.PREFIX }}-packages
+        path: artifacts/packages/
+        if-no-files-found: ignore
+
+    - name: Upload metadata
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.PREFIX }}-metadata
+        path: artifacts/metadata/
+        if-no-files-found: ignore
+
+    - name: Summary
+      run: |
+        {
+          echo "### 拆分完成"
+          echo ""
+          echo "源 run: ${{ inputs.run_id }} / artifact: ${{ env.SOURCE_NAME }} (id ${{ env.ARTIFACT_ID }})"
+          echo ""
+          echo "| artifact | 大小 |"
+          echo "|---|---|"
+          for d in artifacts/*/; do
+            echo "| ${{ env.PREFIX }}-$(basename "$d") | $(du -sh "$d" | cut -f1) |"
+          done
+        } >> $GITHUB_STEP_SUMMARY

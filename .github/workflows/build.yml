@@ -316,13 +316,73 @@ jobs:
         cp $GITHUB_WORKSPACE/openwrt/.config qualcommax_ipq60xx.config || true
         cp $GITHUB_WORKSPACE/openwrt/build_dir/target-*/linux-*/linux-*/.config qualcommax_ipq60xx_kernel.config || true
 
-    - name: Upload firmware for artifact
+    # ---- 产物按用途分组 ----
+    # 以前是把整个 bin/targets/ 打成 1 个 artifact（1.2GB+：
+    # imagebuilder 445MB + 三个各 126MB 的镜像 + 全部 apk 包），下载一次太重，
+    # 而且用的人只想拿其中一两个文件。
+    # 这里先按用途分目录，再每个目录单独上传成一个 artifact，
+    # 页面上就能「需要哪个下哪个」：
+    #   <ver>-firmware-sysupgrade  刷机主力（sysupgrade.bin + 校验和/manifest/config）
+    #   <ver>-firmware-factory    U-Boot 直刷用 factory.bin
+    #   <ver>-firmware-initramfs  initramfs 应急启动
+    #   <ver>-imagebuilder        改包自己重编译用的 imagebuilder
+    #   <ver>-packages            用户态 apk 包集合
+    #   <ver>-kernel-packages     kmod 内核模块包集合
+    #   <ver>-metadata            索引/元信息小文件
+    - name: Split artifacts into groups
+      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true' && env.BUILD_OK == 'true'
+      continue-on-error: true
+      run: |
+        chmod +x .github/scripts/split-artifacts.sh
+        .github/scripts/split-artifacts.sh openwrt/bin/targets "$GITHUB_WORKSPACE/artifacts"
+
+    - name: Upload firmware-sysupgrade
       uses: actions/upload-artifact@main
       if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true' && env.BUILD_OK == 'true'
       with:
-        name: ${{ env.VERSION }}_qualcommax_ipq60xx
-        path: |
-          openwrt/bin/targets/
+        name: ${{ env.VERSION }}-firmware-sysupgrade
+        path: artifacts/firmware-sysupgrade/
+        if-no-files-found: ignore
+
+    - name: Upload firmware-factory
+      uses: actions/upload-artifact@main
+      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true' && env.BUILD_OK == 'true'
+      with:
+        name: ${{ env.VERSION }}-firmware-factory
+        path: artifacts/firmware-factory/
+        if-no-files-found: ignore
+
+    - name: Upload firmware-initramfs
+      uses: actions/upload-artifact@main
+      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true' && env.BUILD_OK == 'true'
+      with:
+        name: ${{ env.VERSION }}-firmware-initramfs
+        path: artifacts/firmware-initramfs/
+        if-no-files-found: ignore
+
+    - name: Upload imagebuilder
+      uses: actions/upload-artifact@main
+      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true' && env.BUILD_OK == 'true'
+      with:
+        name: ${{ env.VERSION }}-imagebuilder
+        path: artifacts/imagebuilder/
+        if-no-files-found: ignore
+
+    - name: Upload packages
+      uses: actions/upload-artifact@main
+      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true' && env.BUILD_OK == 'true'
+      with:
+        name: ${{ env.VERSION }}-packages
+        path: artifacts/packages/
+        if-no-files-found: ignore
+
+    - name: Upload metadata
+      uses: actions/upload-artifact@main
+      if: env.UPLOAD_FIRMWARE_FOR_ARTIFACT == 'true' && env.BUILD_OK == 'true'
+      with:
+        name: ${{ env.VERSION }}-metadata
+        path: artifacts/metadata/
+        if-no-files-found: ignore
 
     - name: Upload build log on failure
       uses: actions/upload-artifact@main
