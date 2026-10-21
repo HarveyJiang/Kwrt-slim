@@ -286,6 +286,19 @@ jobs:
         else
           echo "::error::构建失败：未在 bin/targets 下找到 sysupgrade.bin（make 退出码 ${MAKE_RC:-?}）"
         fi
+        # 固件体积校验：AX1800 Pro 的 U-Boot 刷入上限是 60MB，超过就刷不进机器。
+        # factory.bin = kernel(6MB) + rootfs.squashfs，所以 rootfs 必须 < 54MB。
+        # 这里按字节数卡死，超标直接判失败，免得把一个刷不进去的固件当成功产物发出去。
+        size_limit=$((60*1024*1024))
+        for f in bin/targets/*/*/*factory.bin; do
+          [ -f "$f" ] || continue
+          fsz=$(stat -c %s "$f")
+          echo "固件体积: $f = ${fsz} 字节（$(( fsz / 1024 / 1024 )) MB，上限 $(( size_limit / 1024 / 1024 )) MB）"
+          if [ "$fsz" -ge "$size_limit" ]; then
+            echo "::error::固件超出 U-Boot 刷入上限 60MB：$f（$(( fsz / 1024 / 1024 )) MB），刷不进机器"
+            ok=0
+          fi
+        done
         if [ "$ok" = 1 ]; then
           echo "BUILD_OK=true" >> $GITHUB_ENV
         else
