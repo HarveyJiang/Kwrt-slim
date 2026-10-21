@@ -246,4 +246,26 @@ else
 	echo "WARNING: devices/common/patch_apk_overwrite.py 不存在，apk 覆盖冲突兜底未生效" >&2
 fi
 
+# ---------------------------------------------------------------------------
+# per-device rootfs 的 apk 安装同样要放行未签名索引
+#
+# CONFIG_TARGET_PER_DEVICE_ROOTFS=y 时，打镜像阶段 include/image.mk 的
+# apk_target 会用 staging_dir/packages/<target>/packages.adb 索引安装设备包。
+# 这个索引默认没签名（CONFIG_SIGNED_PACKAGES 没开），apk v3 默认拒绝未签名索引，
+# 于是整个索引被丢弃，设备包装不上：
+#   WARNING: opening file:///.../staging_dir/packages/qualcommax/packages.adb: UNTRUSTED signature
+#   ERROR: unable to select packages:
+#     ipq-wifi-jdcloud_re-ss-01 (no such package):
+#   make[5]: *** [include/image.mk:397: target-dir-3458f57f] Error 1
+# 上游 package/Makefile 装 rootfs 时就带了 --allow-untrusted（见
+# $(if $(CONFIG_SIGNED_PACKAGES),,--allow-untrusted)），只是漏了 image.mk 这条路。
+# 所以这里给 apk_target 的 add 补上 --allow-untrusted（顺便补 --force-overwrite，
+# 与 package/install 阶段的覆盖冲突兜底策略保持一致）。
+# ---------------------------------------------------------------------------
+if [ -f devices/common/patch_apk_allow_untrusted.py ]; then
+	python3 devices/common/patch_apk_allow_untrusted.py || echo "WARNING: patch_apk_allow_untrusted.py 执行异常，per-device rootfs 可能因未签名索引失败" >&2
+else
+	echo "WARNING: devices/common/patch_apk_allow_untrusted.py 不存在，per-device rootfs 可能因未签名索引失败" >&2
+fi
+
 rm -rf package/feeds/packages/jool
