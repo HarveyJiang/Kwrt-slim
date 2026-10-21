@@ -189,7 +189,7 @@ jobs:
           # 只 tail 末尾几十行会漏掉前面包安装阶段的错误（apk 一次能报 6 个错，
           # 末尾往往只有最后 2 个），所以先把所有关键错误行整段打出来。
           echo "===== 关键错误行（apk 覆盖冲突 / 缺依赖 / 编译失败） ====="
-          grep -nE "ERROR:|error:|failed to build|Error [0-9]+|unable to select|trying to overwrite|No such file" $log | tail -200 || true
+          grep -nE "ERROR:|error:|failed to build|Error [0-9]+|unable to select|trying to overwrite|overwriting .* owned by|No such file" $log | tail -200 || true
           echo "===== 详细日志最后 200 行 ====="
           tail -200 $log
           echo "===== 日志结束 ====="
