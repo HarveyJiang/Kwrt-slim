@@ -172,18 +172,18 @@ jobs:
         make defconfig
         cat .config
 
-    - name: Cache
-      uses: stupidloud/cachewrtbuild@main
-      with:
-        ccache: 'false'
-        mixkey: qualcommax_ipq60xx
-        clean: ${{ contains(github.event.action, 'nocache') }}
-        prefix: ${{ github.workspace }}/openwrt
-
-    # cachewrtbuild 的缓存 key = "<mixkey>-cache-openwrt-<toolchainHash>"，
-    # 其中 toolchainHash = openwrt 仓库里最近一次改动 tools/ 或 toolchain/ 的
+    # ---- 工具链缓存 ----
+    # actions/cache 用「path 字符串」算 version 哈希：
+    #   version = sha256("<path1>|<path2>|<压缩方式>|1.0")
+    # 压缩方式在 ubuntu runner 上是 zstd-without-long。
+    # 恢复侧和保存侧的 path 必须逐字一致，否则 version 不同 → 互相看不见，
+    # 缓存永远命不中（之前用 cachewrtbuild 恢复时是 "staging_dir/host*"，
+    # 保存时写的是 "openwrt/staging_dir/host*"，两者哈希不同，一直 miss）。
+    # 现在两侧统一用相对 workspace 的 "openwrt/staging_dir/*"，glob 也能找到。
+    #
+    # 缓存 key = "<mixkey>-cache-openwrt-<toolchainHash>"，
+    # toolchainHash = openwrt 仓库里最近一次改动 tools/ 或 toolchain/ 的
     # 提交短 hash（跟我们的 diy 提交无关，所以换 commit 也能命中）。
-    # 这里复算同一个 key，供下面「失败也存缓存」的步骤使用。
     - name: Compute toolchain cache key
       id: toolchain_key
       continue-on-error: true
@@ -192,6 +192,28 @@ jobs:
         hash=$(git log --pretty=tformat:"%h" -n1 -- tools toolchain 2>/dev/null || true)
         echo "hash=qualcommax_ipq60xx-cache-openwrt-${hash}" >> $GITHUB_OUTPUT
         echo "toolchain cache key: qualcommax_ipq60xx-cache-openwrt-${hash}"
+
+    - name: Restore toolchain cache
+      id: restore_toolchain
+      continue-on-error: true
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          openwrt/staging_dir/host*
+          openwrt/staging_dir/tool*
+        key: ${{ steps.toolchain_key.outputs.hash }}
+
+    # 命中缓存时把 Makefile 里对 tools/toolchain 的 stamp 依赖摘掉，
+    # 否则 make 认为工具链没编过，从头再编一遍（单线程要 2~3 小时）。
+    # 这两条 sed 与 cachewrtbuild 的做法一致。
+    - name: Skip toolchain rebuild
+      if: steps.restore_toolchain.outputs.cache-hit == 'true'
+      continue-on-error: true
+      run: |
+        cd openwrt
+        sed -i 's/ $(tool.*\/stamp-compile)//;' Makefile
+        sed -i 's/ $(tool.*\/stamp-install);//;' Makefile
+        echo "Toolchain building skipped"
 
     - name: Compile the firmware
       id: compile
@@ -303,12 +325,26 @@ jobs:
         retain_days: 30
         keep_minimum_runs: 1
 
-    # cachewrtbuild 自带的保存逻辑挂在 post-if: success() 上，编译失败时
-    # 缓存不会被保存，于是每次修一个错都要从零编译 3 小时（toolchain 占大头）。
-    # 这里在失败路径上补存同一个 key 的工具链缓存，下次触发就能跳过
-    # tools/toolchain 的编译，迭代时间从 3 小时降到几十分钟。
-    - name: Save toolchain cache on failure
-      if: failure()
+    # 工具链缓存保存：编译失败时也要存下来，否则每次修一个错都要从零编译 3 小时
+    # （toolchain 占大头）。path 必须和上面 Restore 步骤逐字一致，
+    # 否则 version 哈希对不上，两边互相看不见。
+    # 命中过缓存就不用再存（key+version 已存在，actions/cache 会拒绝覆盖）；
+    # 工具链没编出来时也不能存，否则半成品缓存会污染后续构建。
+    - name: Check toolchain is built
+      id: toolchain_state
+      if: always()
+      continue-on-error: true
+      run: |
+        if ls openwrt/staging_dir/toolchain-*/bin/*-gcc >/dev/null 2>&1; then
+          echo "ready=true" >> $GITHUB_OUTPUT
+          echo "toolchain built, cache can be saved"
+        else
+          echo "ready=false" >> $GITHUB_OUTPUT
+          echo "toolchain NOT built, skip saving cache"
+        fi
+
+    - name: Save toolchain cache
+      if: always() && steps.toolchain_state.outputs.ready == 'true' && steps.restore_toolchain.outputs.cache-hit != 'true'
       continue-on-error: true
       uses: actions/cache/save@v4
       with:
