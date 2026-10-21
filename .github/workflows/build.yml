@@ -166,6 +166,19 @@ jobs:
         clean: ${{ contains(github.event.action, 'nocache') }}
         prefix: ${{ github.workspace }}/openwrt
 
+    # cachewrtbuild 的缓存 key = "<mixkey>-cache-openwrt-<toolchainHash>"，
+    # 其中 toolchainHash = openwrt 仓库里最近一次改动 tools/ 或 toolchain/ 的
+    # 提交短 hash（跟我们的 diy 提交无关，所以换 commit 也能命中）。
+    # 这里复算同一个 key，供下面「失败也存缓存」的步骤使用。
+    - name: Compute toolchain cache key
+      id: toolchain_key
+      continue-on-error: true
+      run: |
+        cd openwrt
+        hash=$(git log --pretty=tformat:"%h" -n1 -- tools toolchain 2>/dev/null || true)
+        echo "hash=qualcommax_ipq60xx-cache-openwrt-${hash}" >> $GITHUB_OUTPUT
+        echo "toolchain cache key: qualcommax_ipq60xx-cache-openwrt-${hash}"
+
     - name: Compile the firmware
       id: compile
       # 故意吞掉 make 的失败退出码：即使编译失败，本步骤也返回成功，
@@ -261,3 +274,17 @@ jobs:
         token: ${{ github.token }}
         retain_days: 30
         keep_minimum_runs: 1
+
+    # cachewrtbuild 自带的保存逻辑挂在 post-if: success() 上，编译失败时
+    # 缓存不会被保存，于是每次修一个错都要从零编译 3 小时（toolchain 占大头）。
+    # 这里在失败路径上补存同一个 key 的工具链缓存，下次触发就能跳过
+    # tools/toolchain 的编译，迭代时间从 3 小时降到几十分钟。
+    - name: Save toolchain cache on failure
+      if: failure()
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          openwrt/staging_dir/host*
+          openwrt/staging_dir/tool*
+        key: ${{ steps.toolchain_key.outputs.hash }}
