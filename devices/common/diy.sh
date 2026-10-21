@@ -218,4 +218,32 @@ sed -i "s/OpenWrt/OpenWrt/g" package/base-files/files/bin/config_generate 2>/dev
 
 sed -i -e "s/set \${s}.country='\${country || ''}'/set \${s}.country='\${country || \"CN\"}'/g" -e "s/set \${s}.disabled=.*/set \${s}.disabled='0'/" package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc
 
+# ---------------------------------------------------------------------------
+# apk 覆盖冲突的兜底：package/install 阶段给 apk add 加 --force-overwrite
+#
+# apk v3 默认不允许一个包覆盖其它包已拥有的文件，一旦撞名，package/install
+# 阶段直接失败，三小时编译全白跑：
+#   ERROR: my-default-settings-2-r37: trying to overwrite
+#   etc/hotplug.d/ieee80211/10-wifi-detect owned by wifi-scripts-1.0-r1.
+#   ERROR: xray-core-26.3.27-r1: trying to overwrite etc/init.d/xray owned by base-files-1719~20261021.
+#   make[2]: *** [package/Makefile:100: package/install] Error 6
+#
+# apk 一次能报出好几条（上次是 6 条），而日志末尾往往只露最后两三条，
+# 靠日志一行行猜是打地鼠。apk v3 支持 --force-overwrite（与老 opkg 等价，
+# apk add -h 里有 "Overwrite files in other packages"），装的时候按顺序覆盖，
+# 撞名不再让整个编译失败。上游 25.12 的写法是：
+#   $(call apk,$(TARGET_DIR)) add --no-cache --initdb --no-scripts --arch ...
+# 这里只在匹配到上游写法时才改，改不到就打印告警（不直接失败）。
+# ---------------------------------------------------------------------------
+#
+# 具体实现放在 devices/common/patch_apk_overwrite.py（纯 python，避开 shell
+# 引号/编码坑）：脚本会自己找 "$(call apk,...) add" 那一行，在 add 后面插入
+# --force-overwrite；已经插过就跳过（幂等）；找不到或读不到就只告警不失败。
+# diy.sh 是在 openwrt 根目录执行的，workflow 已把 devices/ 拷进来，脚本可用。
+if [ -f devices/common/patch_apk_overwrite.py ]; then
+	python3 devices/common/patch_apk_overwrite.py || echo "WARNING: patch_apk_overwrite.py 执行异常，apk 覆盖冲突兜底可能未生效" >&2
+else
+	echo "WARNING: devices/common/patch_apk_overwrite.py 不存在，apk 覆盖冲突兜底未生效" >&2
+fi
+
 rm -rf package/feeds/packages/jool

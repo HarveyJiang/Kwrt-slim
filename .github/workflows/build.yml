@@ -186,9 +186,16 @@ jobs:
           echo "::warning::并行编译失败（rc=$make_rc），改用 V=s 单线程复跑以获取详细报错"
           log=$(mktemp)
           make V=s &>$log || true
-          echo "===== 详细日志最后 80 行 ====="
-          tail -80 $log
+          # 只 tail 末尾几十行会漏掉前面包安装阶段的错误（apk 一次能报 6 个错，
+          # 末尾往往只有最后 2 个），所以先把所有关键错误行整段打出来。
+          echo "===== 关键错误行（apk 覆盖冲突 / 缺依赖 / 编译失败） ====="
+          grep -nE "ERROR:|error:|failed to build|Error [0-9]+|unable to select|trying to overwrite|No such file" $log | tail -200 || true
+          echo "===== 详细日志最后 200 行 ====="
+          tail -200 $log
           echo "===== 日志结束 ====="
+          # 完整日志另存为 artifact，避免 GitHub 日志截断后看不到前面的错误
+          cp "$log" build-failure.log || true
+          ls -lh build-failure.log || true
         fi
         echo "MAKE_RC=$make_rc" >> $GITHUB_ENV
         rm -rf staging_dir/toolchain-*/bin/*openwrt-linux-musl-lto-dump
@@ -237,6 +244,15 @@ jobs:
         name: ${{ env.VERSION }}_qualcommax_ipq60xx
         path: |
           openwrt/bin/targets/
+
+    - name: Upload build log on failure
+      uses: actions/upload-artifact@main
+      if: failure()
+      with:
+        name: build-log
+        path: openwrt/build-failure.log
+        if-no-files-found: ignore
+        retention-days: 7
 
     - name: Delete workflow runs
       uses: GitRML/delete-workflow-runs@main
