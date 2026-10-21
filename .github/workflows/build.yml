@@ -13,6 +13,14 @@ on:
 
 env:
   TZ: Asia/Shanghai
+  # 编译参数：默认单线程 + 详细输出。
+  # 并行 make 失败时只会给出 "ERROR: target/linux failed to build" 这类笼统错误，
+  # 真实报错（编译器的 error:、OOM、缺文件…）被其它包的输出淹没，只能靠失败后
+  # 再复跑一遍 V=s 去捞，代价是整个编译跑两遍。
+  # 改成默认单线程后，出错日志里能直接看到错误行。
+  # 需要恢复并行时，把 MAKE_JOBS 改成 4 即可（MAKE_VERBOSE 可改成 V=sc 减小日志量）。
+  MAKE_JOBS: 1
+  MAKE_VERBOSE: V=s
 
 jobs:
   build:
@@ -181,6 +189,9 @@ jobs:
 
     - name: Compile the firmware
       id: compile
+      # 默认单线程 + 详细输出（MAKE_JOBS=1, MAKE_VERBOSE=V=s，见文件顶部 env）：
+      # 并行 make 失败时 make 只报 "target/linux failed to build"，真实报错被其它
+      # 包的输出盖住；单线程虽然慢，但日志里能直接看到出错的那一行。
       # 故意吞掉 make 的失败退出码：即使编译失败，本步骤也返回成功，
       # 这样 Cache action 的 post-if: success() 才能执行并保存缓存，
       # 下次触发就能续上已编译的 tools/toolchain，而不是从零重来。
@@ -190,31 +201,40 @@ jobs:
         shopt -s extglob
         df -hT
         cd openwrt
-        echo -e "$(($(nproc)+1)) thread compile"
-        # 注意：不能写 `make ... || { ...; }` 再取 $?，因为 $? 会变成花括号块的退出码。
-        # 这里显式记录 make 的返回码，失败时再用 V=s 单线程复跑一段取详细日志。
-        make_rc=0
-        make -j$(($(nproc)+1)) || make_rc=$?
-        if [ "$make_rc" != 0 ]; then
-          echo "::warning::并行编译失败（rc=$make_rc），改用 V=s 单线程复跑以获取详细报错"
-          log=$(mktemp)
-          make V=s &>$log || true
-          # 只 tail 末尾几十行会漏掉前面包安装阶段的错误（apk 一次能报 6 个错，
-          # 末尾往往只有最后 2 个），所以先把所有关键错误行整段打出来。
-          echo "===== 关键错误行（apk 覆盖冲突 / 缺依赖 / 编译失败） ====="
-          grep -nE "ERROR:|error:|failed to build|Error [0-9]+|unable to select|trying to overwrite|overwriting .* owned by|No such file" $log | tail -200 || true
-          echo "===== 详细日志最后 200 行 ====="
-          tail -200 $log
-          echo "===== 日志结束 ====="
-          # 完整日志另存为 artifact，避免 GitHub 日志截断后看不到前面的错误
-          cp "$log" build-failure.log || true
-          ls -lh build-failure.log || true
-        fi
+        log=build.log
+        echo "编译模式: make -j${MAKE_JOBS} ${MAKE_VERBOSE}（单线程详细输出，错误直接可见）"
+        echo "开始时间: $(date '+%F %T')  nproc=$(nproc)"
+        # 用 tee 一边输出到控制台一边落盘；make 的退出码从 PIPESTATUS[0] 取，
+        # 不用 `|| { ...; }` 再取 $?（那样 $? 会变成花括号块的退出码）。
+        # 先 set +e：即便 shell 带 pipefail，make 失败也不会让脚本提前退出。
+        set +e
+        make -j${MAKE_JOBS} ${MAKE_VERBOSE} 2>&1 | tee "$log"
+        make_rc=${PIPESTATUS[0]}
+        set -e
+        echo "make 退出码: $make_rc（0 为成功；非 0 时由 Verify build output 步骤判定失败）"
         echo "MAKE_RC=$make_rc" >> $GITHUB_ENV
+        if [ "$make_rc" != 0 ]; then
+          # 控制台日志可能被 GitHub 截断，这里把关键错误行整段再打一遍，
+          # 并把「错误行 + 末尾日志」存成 artifact，便于失败后离线分析。
+          echo "===== 关键错误行（编译失败 / apk 冲突 / 缺依赖 / OOM） ====="
+          grep -nE "ERROR:|error:|failed to build|Error [0-9]+|unable to select|trying to overwrite|overwriting .* owned by|No such file|out of memory|Out of memory|Killed|Segmentation fault|cannot find|No such directory" "$log" | tail -300 || true
+          echo "===== 日志最后 300 行 ====="
+          tail -300 "$log" || true
+          echo "===== 日志结束 ====="
+          {
+            echo "===== 关键错误行 ====="
+            grep -nE "ERROR:|error:|failed to build|Error [0-9]+|unable to select|trying to overwrite|overwriting .* owned by|No such file|out of memory|Out of memory|Killed|Segmentation fault|cannot find|No such directory" "$log" | tail -500 || true
+            echo "===== 日志最后 500 行 ====="
+            tail -500 "$log" || true
+          } > build-failure.log || true
+          ls -lh build-failure.log "$log" || true
+          # 完整日志压缩后也留一份，避免 build.log 太大撑爆 runner 磁盘
+          gzip -9 -f "$log" || true
+          ls -lh "$log.gz" 2>/dev/null || true
+        fi
         rm -rf staging_dir/toolchain-*/bin/*openwrt-linux-musl-lto-dump
         rm -rf staging_dir/toolchain-*/initial
         df -hT
-        echo "make 退出码: $make_rc（0 为成功；非 0 时由 Verify build output 步骤判定失败）"
         exit 0
 
     - name: Verify build output
@@ -263,7 +283,9 @@ jobs:
       if: failure()
       with:
         name: build-log
-        path: openwrt/build-failure.log
+        path: |
+          openwrt/build-failure.log
+          openwrt/build.log.gz
         if-no-files-found: ignore
         retention-days: 7
 
