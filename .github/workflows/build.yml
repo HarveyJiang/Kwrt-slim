@@ -286,17 +286,17 @@ jobs:
         else
           echo "::error::构建失败：未在 bin/targets 下找到 sysupgrade.bin（make 退出码 ${MAKE_RC:-?}）"
         fi
-        # 固件体积校验：AX1800 Pro 的 U-Boot 刷入上限是 60MB，超过就刷不进机器。
-        # factory.bin = kernel(6MB) + rootfs.squashfs，所以 rootfs 必须 < 54MB。
-        # 这里按字节数卡死，超标直接判失败，免得把一个刷不进去的固件当成功产物发出去。
+        # 固件体积报告：AX1800 Pro 的 U-Boot 刷入上限是 60MB，超了 U-Boot 直刷会失败。
+        # 这里只打印实际体积并给出警告，不判失败 —— 按用户口径「超过就操过，只要有输出产物」，
+        # 体积不作为构建的硬门禁（sysupgrade 直写 MTD 不走 U-Boot）。
+        # 体积账本与瘦身方法见 devices/common/.config 的「固件体积账本」注释。
         size_limit=$((60*1024*1024))
         for f in bin/targets/*/*/*factory.bin; do
           [ -f "$f" ] || continue
           fsz=$(stat -c %s "$f")
           echo "固件体积: $f = ${fsz} 字节（$(( fsz / 1024 / 1024 )) MB，上限 $(( size_limit / 1024 / 1024 )) MB）"
           if [ "$fsz" -ge "$size_limit" ]; then
-            echo "::error::固件超出 U-Boot 刷入上限 60MB：$f（$(( fsz / 1024 / 1024 )) MB），刷不进机器"
-            ok=0
+            echo "::warning::固件超过 U-Boot 刷入上限 60MB：$f（$(( fsz / 1024 / 1024 )) MB），U-Boot 直刷会失败，需走 sysupgrade 或按 .config 里的体积账本瘦身"
           fi
         done
         if [ "$ok" = 1 ]; then

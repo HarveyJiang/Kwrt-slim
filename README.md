@@ -31,18 +31,22 @@ Actions → Build OpenWrt → Run workflow（手动触发，无参数）。
 ## 固件体积
 
 AX1800 Pro 是 128MB NAND，U-Boot 刷入上限是 **60MB**。`factory.bin` = kernel(6MB) + `rootfs.squashfs`，
-所以 rootfs 必须 < 54MB。CI 在 `Verify build output` 步骤按字节校验 `factory.bin`，超标直接判失败。
+所以 rootfs 要 < 54MB。CI 在 `Verify build output` 步骤会打印 `factory.bin` 的实际体积，
+超过 60MB 只给警告、不判失败（`sysupgrade` 直写 MTD，不走 U-Boot 的体积限制）。
 
-为守住这个上限，`devices/common/.config` 默认关闭了两个大包集合：
+当前默认包集合实测（2026-10-21，run 39584003439）：apk 166MB → squashfs 120MB → **factory.bin 126MB**，
+超过 60MB 上限，**U-Boot 直刷会失败**。体积大头：
 
-| 功能 | apk 体积 | 默认 | 说明 |
-| --- | --- | --- | --- |
-| Docker（dockerd / docker / compose / containerd / runc） | 约 85MB | 关闭 | 128MB NAND 上既装不下也跑不动 |
-| OpenList（含内嵌前端） | 约 44MB | 关闭 | 体积第一大户 |
+| 功能 | apk 体积 | 默认 |
+| --- | --- | --- |
+| Docker（dockerd / docker / compose / containerd / runc） | 约 85MB | 开 |
+| OpenList（含内嵌前端） | 约 44MB | 开 |
+| xray-core | 约 10MB | 开 |
 
-两个大头必须成对去掉才进得了预算：只去 Docker → factory.bin 约 65MB，只去 OpenList → 约 95MB，
-两个都去 → 约 33MB。包本体都还在（Docker 在 feed 里，OpenList 在 `devices/common/diy/package/openlist`），
-改回 `=y` 就能重新启用，但必须同时按预算等量删掉其它大包（squashfs 体积约为 apk 体积的 0.73 倍）。
+要压到 60MB 以内，Docker 与 OpenList 必须**同时**去掉，去掉一个都不够：
+只去 Docker → factory.bin 约 65MB，只去 OpenList → 约 95MB，两个都去 → 约 33MB。
+做法是把 `devices/common/.config` 里这两段的 `=y` 改成 `=n`（包本体都还在，随时改回 `=y` 恢复）。
+换算：squashfs 体积 ≈ apk 体积 × 0.73。
 
 ## 说明
 
