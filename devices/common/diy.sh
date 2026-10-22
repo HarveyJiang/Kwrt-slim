@@ -6,7 +6,19 @@ shopt -s extglob
 # 已内置在 devices/common/diy/package/ 下，随 diy 一起拷进源码树。
 sed -i "/telephony/d" feeds.conf.default
 
-sed -i "s?targets/%S/packages?targets/%S/\$(LINUX_VERSION)?" include/feeds.mk
+# 不要改 include/feeds.mk 里的 apk 索引路径。
+# 上游（openwrt-25.12，apk 分支）FeedSourcesAppendAPK 生成的是
+#   %U/targets/%S/packages/packages.adb          ← 正确的 target 包索引
+#   %U/targets/%S/kmods/$(LINUX_VERSION)-$(LINUX_RELEASE)-$(LINUX_VERMAGIC)/packages.adb
+#     ↑ 这条只有 CONFIG_BUILDBOT 构建才会输出
+# 之前这里把 "targets/%S/packages" 改成了 "targets/%S/$(LINUX_VERSION)"，
+# 结果索引 URL 变成 targets/qualcommax/ipq60xx/6.12.108/packages.adb ——
+# 服务器上该目录下只有 packages/ 和 kmods/，没有按内核版本分的子目录 → 404，
+# 表现为 apk update 报 "wget: exited with error 8" +
+# "packages.adb: unexpected end of file"（把 404 页面当索引读）。
+# 正确 URL 就是上游默认的 targets/qualcommax/ipq60xx/packages/packages.adb。
+# 也不加官方 kmods 仓库：那是上游内核编的，vermagic 与本项目的 NSS 内核对不上，
+# 装了会 invalid module format；kmod 一律用自己编译产出的那一份本地 .apk。
 
 sed -i '/	refresh_config();/d' scripts/feeds
 
