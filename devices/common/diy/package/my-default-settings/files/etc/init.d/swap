@@ -1,0 +1,53 @@
+#!/bin/sh /etc/rc.common
+# /dev/mmcblk0p26 = 原厂 GPT 里的 512MiB 交换分区
+#（p24 plugin / p25 log / p26 swap / p27 storage）
+#
+# 开机自动 swapon。优先级排在 zram 之后：先用 zram（内存压缩盘，快、不磨 eMMC），
+# zram 满了才落到 p26。
+#
+# 首次使用若分区还没有 swap 签名（没被原厂或上一次格式化过），自动 mkswap -f 一次；
+# 该分区在原厂分区表里本就是 swap 用途，不含用户数据。
+#
+# 手动操作：
+#   /etc/init.d/swap start|stop|enable|disable
+#   swapon --show   /   cat /proc/swaps
+
+START=39
+STOP=90
+
+DEV=/dev/mmcblk0p26
+
+has_swap_sig() {
+	[ "$(dd if="$DEV" bs=1 skip=4086 count=10 2>/dev/null)" = "SWAPSPACE2" ]
+}
+
+swapon_dev() {
+	local zprio p
+	zprio=$(awk '$1 ~ /^\/dev\/zram/ {print $5; exit}' /proc/swaps)
+	if [ -n "$zprio" ]; then
+		p=$((zprio - 1))
+		[ "$p" -lt -1 ] && p=-1
+		swapon -p "$p" "$DEV" 2>/dev/null || swapon "$DEV" 2>/dev/null
+	else
+		swapon "$DEV" 2>/dev/null
+	fi
+}
+
+start() {
+	[ -b "$DEV" ] || return 0
+	# 已经启用（手动开过 / 重复调用）就不重复操作
+	grep -qs "^$DEV " /proc/swaps && return 0
+
+	if ! has_swap_sig; then
+		logger -t swap "$DEV 没有 swap 签名，执行 mkswap -f"
+		mkswap -f "$DEV" >/dev/null 2>&1 || { logger -t swap "mkswap 失败"; return 1; }
+	fi
+
+	swapon_dev || { logger -t swap "swapon $DEV 失败"; return 1; }
+	logger -t swap "已启用交换分区 $DEV（$(awk -v d="$DEV" '$1 == d { print int($3 / 1024) }' /proc/swaps) MiB）"
+}
+
+stop() {
+	grep -qs "^$DEV " /proc/swaps || return 0
+	swapoff "$DEV" && logger -t swap "已关闭 $DEV"
+}

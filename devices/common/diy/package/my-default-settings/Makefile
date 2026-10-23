@@ -32,6 +32,7 @@ define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 # 开机自启项统一走 init.d + enable，不再预置 /etc/rc.d 链接
 [ -x /etc/init.d/cpumark ] && /etc/init.d/cpumark enable
+[ -x /etc/init.d/swap ] && /etc/init.d/swap enable
 exit 0
 endef
 
