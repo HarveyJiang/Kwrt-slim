@@ -42,7 +42,8 @@ sed -i "s#false; \\\#true; \\\#" include/download.mk
 wget -N https://github.com/immortalwrt/immortalwrt/raw/refs/heads/openwrt-25.12/package/kernel/linux/modules/video.mk -P package/kernel/linux/modules/
 wget -N https://github.com/immortalwrt/immortalwrt/raw/refs/heads/openwrt-25.12/package/network/utils/nftables/patches/002-nftables-add-fullcone-expression-support.patch -P package/network/utils/nftables/patches/
 wget -N https://github.com/immortalwrt/immortalwrt/raw/refs/heads/openwrt-25.12/package/libs/libnftnl/patches/001-libnftnl-add-fullcone-expression-support.patch -P package/libs/libnftnl/patches/
-wget -N https://github.com/immortalwrt/immortalwrt/raw/refs/heads/openwrt-25.12/package/firmware/wireless-regdb/patches/600-custom-change-txpower-and-dfs.patch -P package/firmware/wireless-regdb/patches/
+# 删除 immortalwrt wireless-regdb 的 600-custom-change-txpower-and-dfs.patch（29dBm 来源）：
+# 用户决定恢复国标：CN 2.4G EIRP 20dBm，用官方 wireless-regdb。
 wget -N  https://github.com/coolsnowwolf/lede/raw/refs/heads/master/package/system/fstools/patches/0200-ntfs3-with-utf8.patch -P package/system/fstools/patches/
 wget -N https://github.com/immortalwrt/immortalwrt/raw/refs/heads/openwrt-25.12/config/Config-kernel.in -P config/
 
@@ -62,9 +63,10 @@ rm -rf package/libs/openssl package/network/services/ppp package/network/service
 git_clone_path openwrt-25.12 https://github.com/immortalwrt/immortalwrt package/libs/openssl package/network/services/ppp package/network/services/shellsync
 
 echo "$(date +"%s")" >version.date
-sed -i "s/DEFAULT_PACKAGES:=/DEFAULT_PACKAGES:=luci-app-advancedplus luci-app-sysctl luci-app-firewall luci-app-package-manager luci-app-upnp luci-app-syscontrol \
-luci-app-wizard luci-base luci-compat \
-coremark wget-ssl curl autocore htop nano zram-swap kmod-lib-zstd kmod-tcp-bbr bash openssh-sftp-server block-mount resolveip ds-lite swconfig luci-app-fan luci-app-footstrap-files /" include/target.mk
+# 精简 DEFAULT_PACKAGES 增量：去掉 advancedplus/sysctl/upnp/syscontrol/wizard/footstrap-files/coremark/htop/nano
+# （用户决定：LuCI 附加页与 upnp 全删；htop/nano 与 .config 的 =n 保持一致）
+sed -i "s/DEFAULT_PACKAGES:=/DEFAULT_PACKAGES:=luci-app-firewall luci-app-package-manager luci-base luci-compat \
+wget-ssl curl autocore zram-swap kmod-lib-zstd kmod-tcp-bbr bash openssh-sftp-server block-mount resolveip ds-lite swconfig luci-app-fan /" include/target.mk
 
 sed -i "s/^.*vermagic$/\techo '1' > \$(LINUX_DIR)\/.vermagic/" include/kernel-defaults.mk
 
@@ -228,7 +230,16 @@ sed -i 's/option timeout 30/option timeout 120/g' package/system/rpcd/files/rpcd
 
 sed -i "s/OpenWrt/OpenWrt/g" package/base-files/files/bin/config_generate 2>/dev/null || true
 
-sed -i -e "s/set \${s}.country='\${country || ''}'/set \${s}.country='\${country || \"CN\"}'/g" -e "s/set \${s}.disabled=.*/set \${s}.disabled='0'/" package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc
+# mac80211.uc 默认值：country CN + 启用 + WiFi 加密/SSID/密码 + 2.4G 功率
+# （用户决定：SSID=opt 密码=147258 加密 psk2-sae(WPA2/WPA3)；2.4G txpower=20 国标）
+sed -i \
+	-e "s/set \${s}.country='\${country || ''}'/set \${s}.country='\${country || \"CN\"}'/g" \
+	-e "s/set \${s}.disabled=.*/set \${s}.disabled='0'/" \
+	-e "s/set \${si}.ssid='\${defaults?.ssid || \"OpenWrt\"}'/set \${si}.ssid='\${defaults?.ssid || \"opt\"}'/" \
+	-e "s/set \${si}.encryption='\${defaults?.encryption || encryption}'/set \${si}.encryption='\${defaults?.encryption || \"psk2-sae\"}'/" \
+	-e "s/set \${si}.key='\${defaults?.key || \"\"}'/set \${si}.key='\${defaults?.key || \"147258\"}'/" \
+	-e "s/set \${s}.htmode='\${htmode}'/set \${s}.htmode='\${htmode}'\\nset \${s}.txpower='\${band_name == '2g' ? \"20\" : \"\"}'/" \
+	package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc
 
 # ---------------------------------------------------------------------------
 # apk 覆盖冲突的兜底：package/install 阶段给 apk add 加 --force-overwrite

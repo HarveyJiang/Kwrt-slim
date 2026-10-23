@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+# 开机自动跑一次 CoreMark，结果写 /etc/bench.log（仅在 LuCI 向导勾选 coremark 时）
+# 说明：原先作为 files/etc/rc.d/S99cpumark 预置启动链接打进镜像，
+# 实机上这类预置 rc.d 链接无法干净删除（whiteout/EPERM）。
+# 现改为标准 init.d 脚本 + 安装时 postinst enable，可随包正常启用/停用/删除。
+START=99
+
+start() {
+	[ -f "/bin/coremark" ] || return 0
+	[ -f "/etc/bench.log" ] && return 0
+	[ "$(uci -q get wizard.default.coremark)" == '1' ] || return 0
+	(
+		sleep 5
+		while :; do
+			[ -f /var/lock/opkg.lock ] || {
+				/sbin/coremark
+				break
+			}
+			sleep 1
+		done
+	) &
+}

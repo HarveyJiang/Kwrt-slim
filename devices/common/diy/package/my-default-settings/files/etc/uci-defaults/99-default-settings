@@ -57,13 +57,12 @@ if [ "$version" -lt 1 ]; then
 		set dhcp.@dnsmasq[0].port='53'
 		set dhcp.@dnsmasq[0].dns_redirect='1'
 		set dhcp.@dnsmasq[0].allservers='1'
-		set dhcp.@dnsmasq[0].localservice='0'
-		set dhcp.@dnsmasq[0].rebind_protection='0'
+		set dhcp.@dnsmasq[0].localservice='1'
+		set dhcp.@dnsmasq[0].rebind_protection='1'
 		set dhcp.@dnsmasq[0].rebind_localhost='1'
 		del dhcp.@dnsmasq[0].noresolv
 		set dhcp.@dnsmasq[0].cachesize='$c'
 		set dhcp.@dnsmasq[0].dnsforwardmax='$c'
-		set dhcp.@dnsmasq[0].min_ttl='3600'
 		set dhcp.lan.force='1'
 		set dhcp._ta=domain
 		set dhcp._ta.name='time.android.com'
@@ -71,12 +70,21 @@ if [ "$version" -lt 1 ]; then
 		set dhcp._ta.comments='time.android'
 	EOF
 
-	(echo root; echo root) | passwd root >/dev/null 2>&1
 	[ -d /usr/share/ucode/luci/template/themes/vantage ] && uci -q set luci.main.mediaurlbase='/luci-static/vantage'
 	grep -q 'log-facility' /etc/dnsmasq.conf 2>/dev/null || echo "log-facility=/dev/null" >> /etc/dnsmasq.conf
 
 	mkdir -p /etc/sysctl.d
-	printf "net.nf_conntrack_max=%s\nnet.core.rmem_max=%s\n" "$nf" "$nf" > /etc/sysctl.d/50-local.conf
+	{
+		printf "net.nf_conntrack_max=%s\n" "$nf"
+		# 审计：rmem_max 之前被错绑成 $nf（64K）→ BBR 锁死 64 KiB；分开写
+		printf "net.core.rmem_max=4194304\nnet.core.wmem_max=4194304\n"
+		printf "net.ipv4.tcp_fastopen=3\n"
+		# 实机 wan.accept_redirects=1 / send_redirects=1 → 关闭重定向更安全
+		for _if in all default; do
+			printf "net.ipv4.conf.%s.accept_redirects=0\n" "$_if"
+			printf "net.ipv4.conf.%s.send_redirects=0\n" "$_if"
+		done
+	} > /etc/sysctl.d/50-local.conf
 
 	if command -v nginx >/dev/null 2>&1 && [ -n "$(uci -q get wizard.pw)" ]; then
 		uci -q delete wizard.pw 2>/dev/null
@@ -106,17 +114,12 @@ if command -v nginx >/dev/null 2>&1; then
 	fi
 fi
 
-# 6. uWSGI 超时与 FullCone 探测（兼容 fw3/fw4）
+# 6. uWSGI 超时（FullCone 探测已删：25.12 是 fw4/nftables 体系无 iptables，
+# 旧逻辑每次必然落 uci set fullcone，而 fw4 不认该选项 → 每次 reload 的告警来源）
 for ini in /etc/uwsgi/vassals/luci-*.ini; do
 	[ -f "$ini" ] && ! grep -q 'cgi-timeout' "$ini" && echo "cgi-timeout = 500" >> "$ini"
 done
 sed -i 's/limit-as = 1000/limit-as = 5000/g' /etc/uwsgi/vassals/luci-webui.ini 2>/dev/null
-
-modprobe xt_FULLCONENAT >/dev/null 2>&1 || modprobe nft_fullcone >/dev/null 2>&1 || {
-	iptables -L -t nat 2>/dev/null | grep -q 'FULLCONENAT' || \
-	nft list ruleset 2>/dev/null | grep -q 'fullcone' || \
-	uci -q set firewall.@defaults[0].fullcone='0'
-}
 
 # 7. 更新版本状态、一次性提交所有 UCI 配置并安全退出
 [ -f /etc/config/system ] && {

@@ -28,8 +28,15 @@ define Package/$(PKG_NAME)/conffiles
 /etc/nginx/
 endef
 
+define Package/$(PKG_NAME)/postinst
+#!/bin/sh
+# 开机自启项统一走 init.d + enable，不再预置 /etc/rc.d 链接
+[ -x /etc/init.d/cpumark ] && /etc/init.d/cpumark enable
+exit 0
+endef
+
 define Build/Prepare
-	chmod -R +x ./files/bin ./files/sbin ./files/etc/profile.d ./files/etc/rc.d ./files/usr/share diy/*/{*,}/base-files/{etc/init.d,usr/bin} >/dev/null || true
+	chmod -R +x ./files/bin ./files/sbin ./files/etc/profile.d ./files/etc/rc.d ./files/etc/init.d ./files/usr/share diy/*/{*,}/base-files/{etc/init.d,usr/bin} >/dev/null || true
 endef
 
 define Build/Compile

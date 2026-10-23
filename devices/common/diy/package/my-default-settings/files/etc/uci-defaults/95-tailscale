@@ -1,0 +1,32 @@
+#!/bin/sh
+# 首次启动：固化 tailscale 的 OpenWrt 侧配置（接口 + fw4 zone + 刷机保留身份）。
+# tailscale 包本体（二进制/init 脚本/uci 配置）由 CONFIG_PACKAGE_tailscale 编进镜像。
+# 注意：--accept-dns=false 不是 UCI 项，首次登录仍要 `tailscale up --accept-dns=false`。
+
+# 1) netifd 接口：proto none + device tailscale0，让 fw4 能绑 zone
+uci -q delete network.tailscale 2>/dev/null
+uci set network.tailscale=interface
+uci set network.tailscale.proto='none'
+uci set network.tailscale.device='tailscale0'
+uci set network.tailscale.auto='1'
+
+# 2) fw4 zone：入站收窄（外部只走命令行/Web），出站与转发放行，SNAT 出网
+if ! uci -q show firewall 2>/dev/null | grep -q "name='tailscale'"; then
+	uci add firewall zone >/dev/null
+	uci set firewall.@zone[-1].name='tailscale'
+	uci set firewall.@zone[-1].input='ACCEPT'
+	uci set firewall.@zone[-1].output='ACCEPT'
+	uci set firewall.@zone[-1].forward='ACCEPT'
+	uci set firewall.@zone[-1].masq='1'
+	uci add_list firewall.@zone[-1].network='tailscale'
+fi
+
+# 3) 保住节点身份：刷机保留 state 与 config（其余配置建议不保留，干净重置）
+grep -q 'tailscaled.state' /etc/sysupgrade.conf 2>/dev/null || \
+	echo '/etc/tailscale/tailscaled.state' >> /etc/sysupgrade.conf
+grep -q '/etc/config/tailscale' /etc/sysupgrade.conf 2>/dev/null || \
+	echo '/etc/config/tailscale' >> /etc/sysupgrade.conf
+
+uci commit network
+uci commit firewall
+exit 0
