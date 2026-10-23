@@ -1,0 +1,55 @@
+#!/bin/sh
+# 98-aria2-rpc（首次启动执行一次）
+#   1) aria2 RPC 默认开启（包默认 enabled=0）；
+#   2) RPC token（rpc_secret）为空或仍是常见占位值时，本机随机生成 16 位；
+#   3) token 同时写到 /root/aria2-rpc.txt（600），方便查看。
+#
+# 说明：token 是**每台设备首次启动时各自随机**生成的，不是编译时写死在镜像里——
+# 否则所有刷同一个镜像的人会共用一个密码。生成后存进 /etc/config/aria2
+# （conffile，sysupgrade 保留配置时不丢；只有 sysupgrade -n / 恢复出厂才重生成）。
+
+[ -x /sbin/uci ] || exit 0
+
+section=""
+for s in $(uci -q show aria2 2>/dev/null | sed -n "s/^aria2\.\([^.=]*\)=aria2$/\1/p"); do
+	section="$s"
+	break
+done
+[ -n "$section" ] || exit 0
+
+changed=0
+
+[ "$(uci -q get aria2.$section.enabled)" = "1" ] || { uci -q set aria2.$section.enabled='1'; changed=1; }
+[ -n "$(uci -q get aria2.$section.rpc_listen_port)" ] || { uci -q set aria2.$section.rpc_listen_port='6800'; changed=1; }
+
+secret="$(uci -q get aria2.$section.rpc_secret)"
+case "$secret" in
+	""|"token"|"changeme"|"password"|"aria2"|"147258")
+		secret="$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16)"
+		uci -q set aria2.$section.rpc_secret="$secret"
+		uci -q set aria2.$section.rpc_auth_method='token'
+		changed=1
+		;;
+esac
+
+if [ "$changed" = "1" ]; then
+	uci -q commit aria2
+fi
+
+if [ -n "$secret" ]; then
+	lanip="$(uci -q get network.lan.ipaddr)"
+	[ -n "$lanip" ] || lanip="10.0.0.1"
+	port="$(uci -q get aria2.$section.rpc_listen_port)"
+	{
+		echo "aria2 RPC"
+		echo "  URL   : http://$lanip:$port/jsonrpc"
+		echo "  Token : $secret"
+	} > /root/aria2-rpc.txt 2>/dev/null
+	chmod 600 /root/aria2-rpc.txt 2>/dev/null
+fi
+
+/etc/init.d/aria2 enable >/dev/null 2>&1
+[ "$changed" = "1" ] && /etc/init.d/aria2 restart >/dev/null 2>&1
+logger -t aria2 "RPC 已启用（端口 $(uci -q get aria2.$section.rpc_listen_port)，token 见 /root/aria2-rpc.txt）"
+
+exit 0
