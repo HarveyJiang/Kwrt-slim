@@ -1,0 +1,37 @@
+#!/bin/sh
+# 96-overlay-extroot（首次启动执行一次）
+#   1) overlay 设备兜底：fstab 里指定的设备不存在时，在 p27 / p28 之间挑一个真实存在的，
+#      避免下次启动 overlay 挂不上、退回 p18 里的 loop 小分区（约 34MB）。
+#   2) 给当前 overlay 设备建一个便捷路径（/mnt/mmcblk0pXX -> /overlay）：
+#      OpenWrt 的 overlay 必须挂在 /overlay，这层软链只是方便浏览。
+
+[ -x /sbin/uci ] || exit 0
+
+section=""
+for s in $(uci -q show fstab 2>/dev/null | sed -n "s/^fstab\.\([^.=]*\)\.target='\/overlay'$/\1/p"); do
+	section="$s"
+done
+
+if [ -n "$section" ]; then
+	dev="$(uci -q get fstab.$section.device)"
+	if [ -n "$dev" ] && [ ! -b "$dev" ]; then
+		for cand in /dev/mmcblk0p27 /dev/mmcblk0p28; do
+			[ -b "$cand" ] || continue
+			[ "$cand" = "$dev" ] && continue
+			uci -q set fstab.$section.device="$cand"
+			uci -q commit fstab
+			logger -t overlay "overlay 设备 $dev 不存在，改用 $cand"
+			dev="$cand"
+			break
+		done
+	fi
+
+	case "$dev" in
+		/dev/mmcblk0p27) mp=/mnt/mmcblk0p27 ;;
+		/dev/mmcblk0p28) mp=/mnt/mmcblk0p28 ;;
+		*) mp="" ;;
+	esac
+	[ -n "$mp" ] && [ ! -e "$mp" ] && ln -sfn /overlay "$mp" 2>/dev/null
+fi
+
+exit 0
