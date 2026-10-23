@@ -1,0 +1,61 @@
+#!/bin/sh
+# 98-media-paths（首次启动执行一次）
+#   OpenList / aria2 的存储默认放数据盘 p27（/overlay 只有 511MiB，放不下下载和媒体库）。
+#   - aria2  : dir=/mnt/mmcblk0p27/downloads，会话/DHT 文件也放 p27
+#   - OpenList: data_dir=/mnt/mmcblk0p27/openlist，temp_dir=/mnt/mmcblk0p27/openlist/tmp
+#   幂等：已经指向 p27 的不动；对应软件没装（没有 /etc/config/xxx）就跳过。
+
+DATA=/mnt/mmcblk0p27
+[ -d "$DATA" ] || exit 0
+[ -x /sbin/uci ] || exit 0
+
+mkdir -p "$DATA/downloads" "$DATA/aria2" "$DATA/openlist/tmp" 2>/dev/null
+
+# 已经指向数据盘的路径不再改写
+need_set() {
+	case "$1" in
+		"$DATA"*) return 1 ;;
+	esac
+	return 0
+}
+
+# ---------- aria2 ----------
+if [ -f /etc/config/aria2 ]; then
+	# 找 aria2 类型的 section 名（通常是 main）
+	sec=""
+	for s in $(uci -q show aria2 2>/dev/null | sed -n 's/^aria2\.\([^.=]*\)=aria2$/\1/p'); do
+		sec="$s"
+		break
+	done
+	if [ -n "$sec" ]; then
+		cur="$(uci -q get aria2.$sec.dir 2>/dev/null)"
+		need_set "$cur" && uci -q set aria2.$sec.dir="$DATA/downloads"
+
+		cur="$(uci -q get aria2.$sec.dht_file_path 2>/dev/null)"
+		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set aria2.$sec.dht_file_path="$DATA/aria2/dht.dat"
+
+		cur="$(uci -q get aria2.$sec.session_file_path 2>/dev/null)"
+		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set aria2.$sec.session_file_path="$DATA/aria2/aria2.session"
+
+		uci -q commit aria2
+		logger -t aria2 "下载目录默认 $DATA/downloads"
+	fi
+fi
+
+# ---------- OpenList ----------
+if [ -f /etc/config/openlist ]; then
+	sec="$(uci -q show openlist 2>/dev/null | sed -n 's/^openlist\.@\?\([^.=]*\)=openlist$/\1/p' | head -1)"
+	[ -n "$sec" ] || sec="@openlist[0]"
+	if uci -q get openlist.$sec.data_dir >/dev/null 2>&1 || [ "$sec" = "@openlist[0]" ]; then
+		cur="$(uci -q get openlist.$sec.data_dir 2>/dev/null)"
+		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set openlist.$sec.data_dir="$DATA/openlist"
+
+		cur="$(uci -q get openlist.$sec.temp_dir 2>/dev/null)"
+		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set openlist.$sec.temp_dir="$DATA/openlist/tmp"
+
+		uci -q commit openlist
+		logger -t openlist "数据目录默认 $DATA/openlist"
+	fi
+fi
+
+exit 0
