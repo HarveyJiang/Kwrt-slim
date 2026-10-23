@@ -1,13 +1,24 @@
-# 挂载配置：overlay（extroot）默认用 /dev/mmcblk0p27（storage 剩余空间，最大），
-# 若 p27 不存在则自动改用 p28（见 /etc/uci-defaults/96-overlay-extroot）。
-# 其余分区按 /mnt/mmcblk0pXX 自动挂载。
-# 用户 2026-10-23 决定：不再单独划 p28，空间并回 p27。
+# 挂载配置（2026-10-23 定稿：overlay 与数据盘分离）
+#   /dev/mmcblk0p28 (511 MiB)  -> /overlay        只放配置/少量安装包，刷机重置也不心疼
+#   /dev/mmcblk0p27 (113.7 GiB)-> /mnt/mmcblk0p27 纯数据盘：OpenList、下载、Docker data-root
+# 这样 sysupgrade -n / 恢复出厂只清 511MB 的 overlay，113GB 数据不受影响。
+# p28 不存在时由 /etc/uci-defaults/96-overlay-extroot 自动回退（p27 顶替 overlay 并停用数据盘挂载）。
 
 config global
 	option anon_mount '1'
 
+# overlay（extroot）：OpenWrt 只认 /overlay 这个挂载点
 config mount
 	option target '/overlay'
+	option device '/dev/mmcblk0p28'
+	option fstype 'ext4'
+	option options 'rw,noatime'
+	option enabled '1'
+	option enabled_fsck '1'
+
+# 数据盘：独立挂载，不参与 overlay，刷机不丢
+config mount
+	option target '/mnt/mmcblk0p27'
 	option device '/dev/mmcblk0p27'
 	option fstype 'ext4'
 	option options 'rw,noatime'
