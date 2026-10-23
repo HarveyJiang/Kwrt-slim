@@ -231,15 +231,39 @@ sed -i 's/option timeout 30/option timeout 120/g' package/system/rpcd/files/rpcd
 sed -i "s/OpenWrt/OpenWrt/g" package/base-files/files/bin/config_generate 2>/dev/null || true
 
 # mac80211.uc 默认值：country CN + 启用 + WiFi 加密/SSID/密码 + 2.4G 功率
-# （用户决定：SSID=opt 密码=147258 加密 psk2-sae(WPA2/WPA3)；2.4G txpower=20 国标）
+# （用户决定：SSID=opt 密码=14725800 加密 psk2-sae(WPA2/WPA3)；2.4G txpower=20 国标）
+#
+# 两个必须注意的坑（2026-10-23 排查「WiFi 默认值没生效」）：
+#  1) 不能写成 `${defaults?.ssid || "opt"}`。设备 DTS/board 自带 board.wlan.defaults 时，
+#     defaults.ssid / defaults.encryption 优先命中，我们的默认值被顶掉 → 固件里还是
+#     SSID=OpenWrt、encryption=none（开放网络）。必须直接赋死值。
+#  2) wifi-iface 的 disabled 在模板里是 ${si}.disabled，不是 ${s}.disabled；旧 sed 匹配不到，
+#     等于从来没写过 disabled，界面里 iface 一直是禁用态。
+#  3) 密码必须 8~63 位（WPA2/WPA3 规范），6 位的 147258 会被 hostapd 拒绝。
+# 另外加一段自检：任何一处没替换成功就让编译失败，别再白编 2 小时。
+WIRELESS_UC=package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc
 sed -i \
-	-e "s/set \${s}.country='\${country || ''}'/set \${s}.country='\${country || \"CN\"}'/g" \
-	-e "s/set \${s}.disabled=.*/set \${s}.disabled='0'/" \
-	-e "s/set \${si}.ssid='\${defaults?.ssid || \"OpenWrt\"}'/set \${si}.ssid='\${defaults?.ssid || \"opt\"}'/" \
-	-e "s/set \${si}.encryption='\${defaults?.encryption || encryption}'/set \${si}.encryption='\${defaults?.encryption || \"psk2-sae\"}'/" \
-	-e "s/set \${si}.key='\${defaults?.key || \"\"}'/set \${si}.key='\${defaults?.key || \"147258\"}'/" \
+	-e "s/set \${s}.country='\${country || ''}'/set \${s}.country='CN'/" \
 	-e "s/set \${s}.htmode='\${htmode}'/set \${s}.htmode='\${htmode}'\\nset \${s}.txpower='\${band_name == '2g' ? \"20\" : \"\"}'/" \
-	package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc
+	-e "s/set \${si}.ssid='\${defaults?.ssid || \"OpenWrt\"}'/set \${si}.ssid='opt'/" \
+	-e "s/set \${si}.encryption='\${defaults?.encryption || encryption}'/set \${si}.encryption='psk2-sae'/" \
+	-e "s/set \${si}.key='\${defaults?.key || \"\"}'/set \${si}.key='14725800'/" \
+	-e "s/set \${si}.disabled='\${defaults ? 0 : 1}'/set \${si}.disabled='0'/" \
+	"$WIRELESS_UC"
+
+check_uc() {
+	grep -qF -- "$1" "$WIRELESS_UC" || {
+		echo "ERROR: mac80211.uc 默认 WiFi 补丁未生效：$1" >&2
+		exit 1
+	}
+}
+check_uc "set \${s}.country='CN'"
+check_uc "set \${s}.txpower="
+check_uc "set \${si}.ssid='opt'"
+check_uc "set \${si}.encryption='psk2-sae'"
+check_uc "set \${si}.key='14725800'"
+check_uc "set \${si}.disabled='0'"
+echo "mac80211.uc 默认 WiFi 已写入：SSID=opt psk2-sae 密码=14725800 2.4G=20dBm"
 
 # ---------------------------------------------------------------------------
 # apk 覆盖冲突的兜底：package/install 阶段给 apk add 加 --force-overwrite
