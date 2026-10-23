@@ -2,7 +2,8 @@
 #   /dev/mmcblk0p28 (511 MiB)  -> /overlay        只放配置/少量安装包，刷机重置也不心疼
 #   /dev/mmcblk0p27 (113.7 GiB)-> /mnt/mmcblk0p27 纯数据盘：OpenList、下载、Docker data-root
 # 这样 sysupgrade -n / 恢复出厂只清 511MB 的 overlay，113GB 数据不受影响。
-# p28 不存在时由 /etc/uci-defaults/96-overlay-extroot 自动回退（p27 顶替 overlay 并停用数据盘挂载）。
+# ⚠️ overlay 固定 p28，不存在时**不回退** p27（用户 2026-10-23 明确要求）：
+#    挂不上就退回内置 loop overlay，fstab 保持不动，由 96-overlay-extroot 记日志告警。
 
 config global
 	option anon_mount '1'

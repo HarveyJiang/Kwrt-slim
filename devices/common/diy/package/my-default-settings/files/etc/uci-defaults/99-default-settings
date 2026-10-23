@@ -55,7 +55,7 @@ if [ "$version" -lt 1 ]; then
 		add_list system.ntp.server='ntp.aliyun.com'
 		add_list system.ntp.server='0.openwrt.pool.ntp.org'
 		set dhcp.@dnsmasq[0].port='53'
-		set dhcp.@dnsmasq[0].dns_redirect='1'
+		set dhcp.@dnsmasq[0].dns_redirect='0'
 		set dhcp.@dnsmasq[0].allservers='1'
 		set dhcp.@dnsmasq[0].localservice='1'
 		set dhcp.@dnsmasq[0].rebind_protection='1'
