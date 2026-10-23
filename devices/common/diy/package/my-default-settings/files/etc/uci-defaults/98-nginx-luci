@@ -1,0 +1,14 @@
+#!/bin/sh
+# 98-nginx-luci（首次启动执行一次）
+#   LuCI 用的 nginx 只服务一个面板，没必要按 CPU 核数开 worker。
+#   上游模板 /etc/nginx/uci.conf.template 里是 `worker_processes auto;`，
+#   在 406MB 内存的小机器上每个 worker 都要驻留几 MB，这里固定成 1。
+#   模板改动在下次 nginx 启动/重载时生效（首启时 nginx 还没起，正好）。
+
+[ -f /etc/nginx/uci.conf.template ] || exit 0
+
+sed -i -e 's/^worker_processes .*/worker_processes 1;/' /etc/nginx/uci.conf.template
+[ -f /etc/nginx/uci.conf ] && sed -i -e 's/^worker_processes .*/worker_processes 1;/' /etc/nginx/uci.conf
+
+logger -t nginx "worker_processes 固定为 1"
+exit 0

@@ -37,4 +37,14 @@ if [ -n "$overlay_sec" ]; then
 	[ -n "$mp" ] && [ ! -e "$mp" ] && ln -sfn /overlay "$mp" 2>/dev/null
 fi
 
+# overlay 结构自愈：ext4 extroot 需要 /overlay/upper 与 /overlay/work。
+# 典型问题：把一个装过别的东西的分区直接拿来当 overlay（比如 p28 里原来是
+# alist/aria2 的数据），没有 upper/work，overlayfs 的读写层就落不到位。
+# 这里只补建目录、不删任何数据；旧文件仍占着分区空间，建议刷机前格式化一次：
+#   mkfs.ext4 -F -L kwrtdata /dev/mmcblk0p28
+if [ -d /overlay ] && { [ ! -d /overlay/upper ] || [ ! -d /overlay/work ]; }; then
+	mkdir -p /overlay/upper /overlay/work
+	logger -t overlay "overlay 缺少 upper/work，已补建；分区里若有旧数据建议格式化"
+fi
+
 exit 0
