@@ -1,0 +1,9 @@
+# Docker 守护进程配置（随固件预置，Docker 用 apk add 装上后即生效）
+# 关键：data-root 指向数据盘 p27 —— overlay 只有 511MiB（p28），放不下镜像/容器层。
+# 数据盘 /mnt/mmcblk0p27 由 /etc/config/fstab 独立挂载，刷机不丢。
+
+config globals 'globals'
+	option data_root '/mnt/mmcblk0p27/docker'
+	option log_level 'warn'
+	option iptables '1'
+	list hosts 'unix:///var/run/docker.sock'

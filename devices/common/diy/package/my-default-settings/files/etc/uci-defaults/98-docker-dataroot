@@ -1,0 +1,17 @@
+#!/bin/sh
+# 98-docker-dataroot（首次启动执行一次）
+#   Docker 的 data-root 必须放在数据盘 p27（/overlay 只有 511MiB，装不下镜像）。
+#   即使当前固件没装 Docker，也先把目录建好；以后 apk add dockerd 时配置已经就位。
+
+[ -d /mnt/mmcblk0p27 ] || exit 0
+mkdir -p /mnt/mmcblk0p27/docker 2>/dev/null
+
+[ -f /etc/config/dockerd ] || exit 0
+[ -x /sbin/uci ] || exit 0
+
+uci -q get dockerd.globals >/dev/null 2>&1 || uci -q set dockerd.globals='globals'
+uci -q set dockerd.globals.data_root='/mnt/mmcblk0p27/docker'
+uci -q commit dockerd
+logger -t docker "data-root 指向 /mnt/mmcblk0p27/docker"
+
+exit 0
