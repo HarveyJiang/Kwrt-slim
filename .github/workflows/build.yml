@@ -13,14 +13,12 @@ on:
 
 env:
   TZ: Asia/Shanghai
-  # 编译参数：默认单线程 + 详细输出。
-  # 并行 make 失败时只会给出 "ERROR: target/linux failed to build" 这类笼统错误，
-  # 真实报错（编译器的 error:、OOM、缺文件…）被其它包的输出淹没，只能靠失败后
-  # 再复跑一遍 V=s 去捞，代价是整个编译跑两遍。
-  # 改成默认单线程后，出错日志里能直接看到错误行。
-  # 需要恢复并行时，把 MAKE_JOBS 改成 4 即可（MAKE_VERBOSE 可改成 V=sc 减小日志量）。
-  MAKE_JOBS: 1
-  MAKE_VERBOSE: V=s
+  # 编译参数：默认并行 4 线程 + 精简输出（用户 2026-10-23 决定放开线程）。
+  # 并行时失败只会给出 "ERROR: target/linux failed to build" 这类笼统错误，
+  # 真实报错被其它包输出淹没——靠 Compile 步骤失败分支的 grep + build-failure.log 定位。
+  # 需要回到单线程看实时错误行时，把 MAKE_JOBS 改回 1、MAKE_VERBOSE 改回 V=s 即可。
+  MAKE_JOBS: 4
+  MAKE_VERBOSE: V=sc
 
 jobs:
   build:
