@@ -1,0 +1,13 @@
+# 挂载配置：默认把 p28 作为 overlay（extroot），其余分区按 /mnt/mmcblk0pXX 自动挂载
+# 用户 2026-10-23 指定：overlay 用 /dev/mmcblk0p28
+
+config global
+	option anon_mount '1'
+
+config mount
+	option target '/overlay'
+	option device '/dev/mmcblk0p28'
+	option fstype 'ext4'
+	option options 'rw,noatime'
+	option enabled '1'
+	option enabled_fsck '0'
