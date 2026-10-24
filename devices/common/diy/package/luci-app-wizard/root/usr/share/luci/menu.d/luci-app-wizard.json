@@ -1,7 +1,7 @@
 {
 	"admin/system/wizard": {
-		"title": "Setup Wizard",
-		"order": 1,
+		"title": "安装向导",
+		"order": 99,
 		"action": {
 			"type": "view",
 			"path": "wizard/initsetup"
