@@ -1,0 +1,44 @@
+#!/bin/sh
+# /etc/init.d/app-defaults —— 每次开机强制应用 aria2 / OpenList 默认值（升级也覆盖）
+# 用户 2026-10-24 拍板：端口/并发做成 init 强制（升级保留配置也生效，LuCI/uci 里手动改会被开机重置——这是约定好的代价）。
+# 为什么需要：uci-defaults 脚本只跑一次且跑过后被 overlay whiteout，keep-config 升级后
+# 新 squashfs 里的同名脚本被旧 whiteout 隐藏 → 新默认（6808/8899/8 并发…）永不重跑。
+# init 脚本在 squashfs 里每次开机必跑，不受 whiteout 影响。
+# 与 https-off(START=95) 同批；本脚本 START=94 先于 wizard(99)。
+
+START=94
+STOP=06
+
+USE_PROCD=1
+
+start() {
+	changed=0
+
+	# aria2：RPC 6808 + 省内存并发（8 连接×3 任务≈24 socket，BT 节点 24）
+	for sec in $(uci -q show aria2 2>/dev/null | sed -n 's/^aria2\.\([^.]*\)=aria2$/\1/p'); do
+		uci -q set "aria2.$sec.rpc_listen_port"='6808'
+		uci -q set "aria2.$sec.max_connection_per_server"='8'
+		uci -q set "aria2.$sec.split"='8'
+		uci -q set "aria2.$sec.min_split_size"='1M'
+		uci -q set "aria2.$sec.max_concurrent_downloads"='3'
+		uci -q set "aria2.$sec.bt_max_peers"='24'
+		changed=1
+	done
+	if [ "$changed" = 1 ]; then
+		uci -q commit aria2
+		[ -x /etc/init.d/aria2 ] && /etc/init.d/aria2 restart >/dev/null 2>&1
+	fi
+
+	changed=0
+	# OpenList：Web 端口 8899
+	for sec in $(uci -q show openlist 2>/dev/null | sed -n 's/^openlist\.\([^.]*\)=openlist$/\1/p'); do
+		uci -q set "openlist.$sec.port"='8899'
+		changed=1
+	done
+	if [ "$changed" = 1 ]; then
+		uci -q commit openlist
+		[ -x /etc/init.d/openlist ] && /etc/init.d/openlist restart >/dev/null 2>&1
+	fi
+
+	return 0
+}
