@@ -32,6 +32,18 @@ if ! uci -q show firewall 2>/dev/null | grep -q "name='tailscale'"; then
 	done
 fi
 
+# 2b) 入站放行（幂等，升级保留配置时也会补）：aria2 RPC(6808) / OpenList(8899)
+#     （用户 2026-10-24：tailnet 节点要能访问这两个服务）
+for _port in 6808 8899; do
+	uci -q show firewall 2>/dev/null | grep -q "name='tailscale-allow-${_port}'" && continue
+	uci add firewall rule >/dev/null
+	uci set firewall.@rule[-1].name="tailscale-allow-${_port}"
+	uci set firewall.@rule[-1].src='tailscale'
+	uci set firewall.@rule[-1].proto='tcp'
+	uci set firewall.@rule[-1].dest_port="${_port}"
+	uci set firewall.@rule[-1].target='ACCEPT'
+done
+
 # 3) 保住节点身份：刷机保留 state 与 config（其余配置建议不保留，干净重置）
 grep -q 'tailscaled.state' /etc/sysupgrade.conf 2>/dev/null || \
 	echo '/etc/tailscale/tailscaled.state' >> /etc/sysupgrade.conf
