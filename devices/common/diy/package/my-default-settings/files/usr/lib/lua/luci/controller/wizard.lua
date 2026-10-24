@@ -3,8 +3,7 @@ module("luci.controller.wizard", package.seeall)
 local http = require "luci.http"
 
 function index()
-    entry({"admin", "index"}, call("landing_page"), _("Home"), 0).dependent = false
-
+    -- 用户 2026-10-24 定位：英文 Home 菜单来自这行 entry({"admin","index"},...,_("Home"),0)，已删除
     -- 直接改写 admin 根节点的调度目标
     local admin = node("admin")
     if admin then
@@ -39,7 +38,7 @@ function landing_page()
         elseif is_running("routergo") then
             target = {"admin", "routerdog"}
         elseif check_wifi(uci) then
-            target = {"admin", "status", "dashboard"}
+            target = {"admin", "dashboard"}
         else
             target = {"admin", "status", "overview"}
         end
@@ -48,7 +47,7 @@ function landing_page()
     elseif page == "overview" then
         target = {"admin", "status", "overview"}
     elseif page == "dashboard" then
-        target = {"admin", "status", "dashboard"}
+        target = {"admin", "dashboard"}
 
     -- 3. Routerdog 模式（优先比对字符串，命中再检测进程）
     elseif page == "routerdog" and is_running("routergo") then
