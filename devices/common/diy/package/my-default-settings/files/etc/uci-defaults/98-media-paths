@@ -1,7 +1,10 @@
 #!/bin/sh
 # 98-media-paths（首次启动执行一次）
 #   OpenList / aria2 的存储默认放数据盘 p27（/overlay 只有 511MiB，放不下下载和媒体库）。
-#   - aria2  : dir=/mnt/mmcblk0p27/downloads，会话/DHT 文件也放 p27
+#   - aria2  : dir=/mnt/mmcblk0p27/downloads；config_dir=/mnt/mmcblk0p27/config/aria2
+#              （官方 aria2.init 从 config_dir 派生 dht.dat.<sec> 与 aria2.session.<sec>，
+#                没有 dht_file_path/session_file_path 这两个 uci 项——之前设过是无效的）；
+#              user=root；下载优化项补齐（仅缺省时写入）。
 #   - OpenList: data_dir=/mnt/mmcblk0p27/openlist，temp_dir=/mnt/mmcblk0p27/openlist/tmp
 #   幂等：已经指向 p27 的不动；对应软件没装（没有 /etc/config/xxx）就跳过。
 
@@ -9,7 +12,7 @@ DATA=/mnt/mmcblk0p27
 [ -d "$DATA" ] || exit 0
 [ -x /sbin/uci ] || exit 0
 
-mkdir -p "$DATA/downloads" "$DATA/aria2" "$DATA/openlist/tmp" 2>/dev/null
+mkdir -p "$DATA/downloads" "$DATA/config/aria2" "$DATA/openlist/tmp" 2>/dev/null
 
 # 已经指向数据盘的路径不再改写
 need_set() {
@@ -31,14 +34,21 @@ if [ -f /etc/config/aria2 ]; then
 		cur="$(uci -q get aria2.$sec.dir 2>/dev/null)"
 		need_set "$cur" && uci -q set aria2.$sec.dir="$DATA/downloads"
 
-		cur="$(uci -q get aria2.$sec.dht_file_path 2>/dev/null)"
-		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set aria2.$sec.dht_file_path="$DATA/aria2/dht.dat"
+		# 官方 init 从 config_dir 派生会话/DHT 文件，配置目录放数据盘才持久化
+		cur="$(uci -q get aria2.$sec.config_dir 2>/dev/null)"
+		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set aria2.$sec.config_dir="$DATA/config/aria2"
 
-		cur="$(uci -q get aria2.$sec.session_file_path 2>/dev/null)"
-		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set aria2.$sec.session_file_path="$DATA/aria2/aria2.session"
+		# 运行用户：显式 root（空值默认也是 root，这里写清楚）
+		[ -n "$(uci -q get aria2.$sec.user 2>/dev/null)" ] || uci -q set aria2.$sec.user='root'
+
+		# 下载优化（仅缺省时写入；默认 continue=true 由 init 硬编码，无需设）
+		[ -n "$(uci -q get aria2.$sec.max_connection_per_server 2>/dev/null)" ] || uci -q set aria2.$sec.max_connection_per_server='16'
+		[ -n "$(uci -q get aria2.$sec.split 2>/dev/null)" ] || uci -q set aria2.$sec.split='16'
+		[ -n "$(uci -q get aria2.$sec.min_split_size 2>/dev/null)" ] || uci -q set aria2.$sec.min_split_size='16M'
+		[ -n "$(uci -q get aria2.$sec.check_certificate 2>/dev/null)" ] || uci -q set aria2.$sec.check_certificate='false'
 
 		uci -q commit aria2
-		logger -t aria2 "下载目录默认 $DATA/downloads"
+		logger -t aria2 "下载目录默认 $DATA/downloads，配置目录 $DATA/config/aria2"
 	fi
 fi
 
