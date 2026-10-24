@@ -5,7 +5,7 @@
 #              （官方 aria2.init 从 config_dir 派生 dht.dat.<sec> 与 aria2.session.<sec>，
 #                没有 dht_file_path/session_file_path 这两个 uci 项——之前设过是无效的）；
 #              user=root；下载优化项补齐（仅缺省时写入）。
-#   - OpenList: data_dir=/mnt/mmcblk0p27/openlist，temp_dir=/mnt/mmcblk0p27/openlist/tmp
+#   - OpenList: data_dir=/mnt/mmcblk0p27/config/openlist，temp_dir=/mnt/mmcblk0p27/config/openlist/tmp
 #   幂等：已经指向 p27 的不动；对应软件没装（没有 /etc/config/xxx）就跳过。
 
 DATA=/mnt/mmcblk0p27
@@ -13,7 +13,7 @@ DATA=/mnt/mmcblk0p27
 [ -x /sbin/uci ] || exit 0
 
 # 用户 2026-10-24 要求：不预建 config/aria2 目录（存在则保留内容不动）
-mkdir -p "$DATA/downloads" "$DATA/openlist/tmp" 2>/dev/null
+mkdir -p "$DATA/downloads" "$DATA/config/openlist/tmp" 2>/dev/null
 
 # 已经指向数据盘的路径不再改写
 need_set() {
@@ -59,13 +59,13 @@ if [ -f /etc/config/openlist ]; then
 	[ -n "$sec" ] || sec="@openlist[0]"
 	if uci -q get openlist.$sec.data_dir >/dev/null 2>&1 || [ "$sec" = "@openlist[0]" ]; then
 		cur="$(uci -q get openlist.$sec.data_dir 2>/dev/null)"
-		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set openlist.$sec.data_dir="$DATA/openlist"
+		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set openlist.$sec.data_dir="$DATA/config/openlist"
 
 		cur="$(uci -q get openlist.$sec.temp_dir 2>/dev/null)"
-		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set openlist.$sec.temp_dir="$DATA/openlist/tmp"
+		{ [ -z "$cur" ] || need_set "$cur"; } && uci -q set openlist.$sec.temp_dir="$DATA/config/openlist/tmp"
 
 		uci -q commit openlist
-		logger -t openlist "数据目录默认 $DATA/openlist"
+		logger -t openlist "数据目录默认 $DATA/config/openlist"
 	fi
 fi
 
