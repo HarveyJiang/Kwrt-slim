@@ -17,6 +17,8 @@ lan_ip="${lan_ip:-10.0.0.1}"
 [ -z "$(uci -q get system.@system[0].hostname)" ] && uci -q set system.@system[0].hostname='OpenWrt'
 [ "$(uci -q get dropbear.main._direct)" != "1" ] && uci -q delete dropbear.main.Interface
 case "$(uci -q get uhttpd.main.index_page)" in *cgi-bin/luci*) ;; *) uci -q add_list uhttpd.main.index_page='cgi-bin/luci' ;; esac
+# 用户 2026-10-24 要求：默认关闭 HTTP→HTTPS 跳转（luci-nginx 读 uhttpd.main.redirect_ssl，默认 1）
+uci -q set uhttpd.main.redirect_ssl='0'
 
 proc=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
 [ "${proc:-0}" -gt 0 ] 2>/dev/null || proc=3
