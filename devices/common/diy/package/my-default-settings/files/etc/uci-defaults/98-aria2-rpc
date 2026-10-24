@@ -20,7 +20,7 @@ done
 changed=0
 
 [ "$(uci -q get aria2.$section.enabled)" = "1" ] || { uci -q set aria2.$section.enabled='1'; changed=1; }
-[ -n "$(uci -q get aria2.$section.rpc_listen_port)" ] || { uci -q set aria2.$section.rpc_listen_port='6800'; changed=1; }
+[ -n "$(uci -q get aria2.$section.rpc_listen_port)" ] || { uci -q set aria2.$section.rpc_listen_port='6808'; changed=1; }
 
 secret="$(uci -q get aria2.$section.rpc_secret)"
 case "$secret" in

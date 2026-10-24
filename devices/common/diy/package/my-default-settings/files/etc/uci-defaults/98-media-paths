@@ -12,7 +12,8 @@ DATA=/mnt/mmcblk0p27
 [ -d "$DATA" ] || exit 0
 [ -x /sbin/uci ] || exit 0
 
-mkdir -p "$DATA/downloads" "$DATA/config/aria2" "$DATA/openlist/tmp" 2>/dev/null
+# 用户 2026-10-24 要求：不预建 config/aria2 目录（存在则保留内容不动）
+mkdir -p "$DATA/downloads" "$DATA/openlist/tmp" 2>/dev/null
 
 # 已经指向数据盘的路径不再改写
 need_set() {
