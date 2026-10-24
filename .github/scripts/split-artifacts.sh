@@ -62,7 +62,7 @@ for d in */; do
   if compgen -G "$v/*.apk" >/dev/null 2>&1; then
     mkdir -p "$out/packages/$v"
     cp -f -- "$v"/*.apk "$out/packages/$v/" 2>/dev/null || true
-    cp -f -- "$v"/index.json "$v"/packages.adb "$out/packages/$v/" 2>/dev/null || true
+    cp -f -- "$v"/index.json "$v"/packages.adb "$v"/APKINDEX.tar.gz "$out/packages/$v/" 2>/dev/null || true
   elif [ -d "$v/packages" ]; then
     mkdir -p "$out/packages/$v"
     cp -rf -- "$v/packages" "$out/packages/$v/" 2>/dev/null || true
