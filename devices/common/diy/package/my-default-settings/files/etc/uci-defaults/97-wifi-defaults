@@ -5,7 +5,8 @@
 # 为什么需要这一步：
 #   mac80211.uc 的改动只影响「重新生成」的 /etc/config/wireless。sysupgrade 保留配置时
 #   旧文件（SSID=OpenWrt、encryption=none）会原样留下，所以这里在首次启动再补一刀。
-#   只改仍是出厂默认的 iface（SSID 为空/OpenWrt、encryption 为空/none、密码为空），
+#   只改仍是出厂默认的 iface（SSID 为空 / OpenWrt* 前缀（含 OpenWrt_5G/OpenWrt_2.4G，
+#   2026-10-24 发现设备实际生成的是带频段后缀的 SSID）、encryption 为空/none、密码为空），
 #   用户自己改过的配置不会被覆盖。
 #   全新刷机没有 wireless 文件时直接退出，交给 boot 的 `wifi config` 用已打补丁的
 #   mac80211.uc 生成。
@@ -27,7 +28,11 @@ for sec in $(uci -q show wireless 2>/dev/null | sed -n 's/^\(wireless\.[^=]*\)=w
 	ssid=$(uci -q get "wireless.$sec.ssid")
 	enc=$(uci -q get "wireless.$sec.encryption")
 	key=$(uci -q get "wireless.$sec.key")
-	if [ -z "$ssid" ] || [ "$ssid" = "OpenWrt" ] || [ -z "$enc" ] || [ "$enc" = "none" ] || [ -z "$key" ]; then
+	case "$ssid" in
+		OpenWrt*) ssid_is_default=1 ;;
+		*) ssid_is_default=0 ;;
+	esac
+	if [ -z "$ssid" ] || [ "$ssid_is_default" = 1 ] || [ -z "$enc" ] || [ "$enc" = "none" ] || [ -z "$key" ]; then
 		uci -q set "wireless.$sec.ssid"='opt'
 		uci -q set "wireless.$sec.encryption"='psk2-sae'
 		uci -q set "wireless.$sec.key"='14725800'
