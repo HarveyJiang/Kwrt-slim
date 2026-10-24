@@ -4,9 +4,13 @@
 #   2) RPC token（rpc_secret）为空或仍是常见占位值时，本机随机生成 16 位；
 #   3) token 同时写到 /root/aria2-rpc.txt（600），方便查看。
 #
-# 说明：token 是**每台设备首次启动时各自随机**生成的，不是编译时写死在镜像里——
-# 否则所有刷同一个镜像的人会共用一个密码。生成后存进 /etc/config/aria2
-# （conffile，sysupgrade 保留配置时不丢；只有 sysupgrade -n / 恢复出厂才重生成）。
+# 说明：token 优先级——
+#   ① 构建时若仓库变量 ARIA2_RPC_SECRET 非空，会被 build.yml 烘焙成
+#      /etc/aria2-rpc-token 打进镜像，首启用直接用这个值（全网统一，
+#      方便客户端预配置，不用每台看 /root/aria2-rpc.txt）；
+#   ② 没有烘焙文件时，每台设备首次启动各自随机 16 位。
+# 已设过真实 token 的（sysupgrade 保留配置）不覆盖。
+# 生成后存进 /etc/config/aria2（conffile，保留配置不丢）。
 
 [ -x /sbin/uci ] || exit 0
 
@@ -25,7 +29,11 @@ changed=0
 secret="$(uci -q get aria2.$section.rpc_secret)"
 case "$secret" in
 	""|"token"|"changeme"|"password"|"aria2"|"147258")
-		secret="$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16)"
+		if [ -s /etc/aria2-rpc-token ]; then
+			secret="$(tr -dc 'a-zA-Z0-9' < /etc/aria2-rpc-token | head -c 64)"
+		else
+			secret="$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16)"
+		fi
 		uci -q set aria2.$section.rpc_secret="$secret"
 		uci -q set aria2.$section.rpc_auth_method='token'
 		changed=1

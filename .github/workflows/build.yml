@@ -161,6 +161,19 @@ jobs:
           find "devices/qualcommax_ipq60xx/patches" -maxdepth 1 -type f -name '*.revert.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' -R --no-backup-if-mismatch -p1 -F 1 -i '%'"
           find "devices/qualcommax_ipq60xx/patches" -maxdepth 1 -type f -name '*.patch' ! -name '*.revert.patch' ! -name '*.bin.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "patch -d './' --no-backup-if-mismatch -p1 -F 1 -i '%'"
 
+    # 仓库变量 ARIA2_RPC_SECRET 非空时，烘焙成 /etc/aria2-rpc-token 打进镜像
+    # （98-aria2-rpc 首启用时优先用它当 RPC token，全网统一；为空则设备各自随机）
+    - name: Bake ARIA2_RPC_SECRET
+      if: vars.ARIA2_RPC_SECRET != ''
+      env:
+        ARIA2_RPC_SECRET: ${{ vars.ARIA2_RPC_SECRET }}
+      run: |
+        cd openwrt
+        F=package/my-default-settings/files/etc/aria2-rpc-token
+        mkdir -p "$(dirname "$F")"
+        printf '%s\n' "$ARIA2_RPC_SECRET" > "$F"
+        echo "ARIA2_RPC_SECRET baked: $(wc -c < "$F") bytes -> $F"
+
     - name: Defconfig
       run: |
         cd openwrt
