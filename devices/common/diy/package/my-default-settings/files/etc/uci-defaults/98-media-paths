@@ -43,9 +43,12 @@ if [ -f /etc/config/aria2 ]; then
 		[ -n "$(uci -q get aria2.$sec.user 2>/dev/null)" ] || uci -q set aria2.$sec.user='root'
 
 		# 下载优化（仅缺省时写入；默认 continue=true 由 init 硬编码，无需设）
-		[ -n "$(uci -q get aria2.$sec.max_connection_per_server 2>/dev/null)" ] || uci -q set aria2.$sec.max_connection_per_server='16'
-		[ -n "$(uci -q get aria2.$sec.split 2>/dev/null)" ] || uci -q set aria2.$sec.split='16'
-		[ -n "$(uci -q get aria2.$sec.min_split_size 2>/dev/null)" ] || uci -q set aria2.$sec.min_split_size='16M'
+		# 用户 2026-10-24：406MB RAM 下收敛并发——每任务 8 连接 × 同时 3 任务 ≈24 socket 上限，BT 节点限 24
+		[ -n "$(uci -q get aria2.$sec.max_connection_per_server 2>/dev/null)" ] || uci -q set aria2.$sec.max_connection_per_server='8'
+		[ -n "$(uci -q get aria2.$sec.split 2>/dev/null)" ] || uci -q set aria2.$sec.split='8'
+		[ -n "$(uci -q get aria2.$sec.min_split_size 2>/dev/null)" ] || uci -q set aria2.$sec.min_split_size='1M'
+		[ -n "$(uci -q get aria2.$sec.max_concurrent_downloads 2>/dev/null)" ] || uci -q set aria2.$sec.max_concurrent_downloads='3'
+		[ -n "$(uci -q get aria2.$sec.bt_max_peers 2>/dev/null)" ] || uci -q set aria2.$sec.bt_max_peers='24'
 		[ -n "$(uci -q get aria2.$sec.check_certificate 2>/dev/null)" ] || uci -q set aria2.$sec.check_certificate='false'
 
 		uci -q commit aria2
