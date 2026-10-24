@@ -1,0 +1,41 @@
+#!/bin/sh
+# https-off：开机强制 http 不再跳 https（用户 2026-10-24 要求，升级也强制生效）
+#
+# 为什么放 init.d 而不是 uci-defaults：
+#   uci-defaults 脚本只跑一次，且跑过后会在 overlay 生成 whiteout；keep-config 升级时
+#   新固件 squashfs 里的同名脚本会被旧 whiteout 隐藏 → 新默认永远不会重跑
+#   （这解释了几次「新默认没生效」：aria2 6808、https 兜底都没落地）。
+#   init.d 每次开机必跑，升级也执行。
+#
+# 逻辑：wizard(sethttps, START=99) 每次开机若读到 wizard.default.https=1 会重建
+#   nginx._redirect2ssl（listen 80 → return 302 https）。本脚本 START=95 先于 wizard：
+#   把 wizard.default.https 压为 0 + 顺手删掉已存在的 _redirect2ssl，wizard 读到 0
+#   后自己不会再建 302 跳转。
+
+START=95
+STOP=05
+
+start() {
+	[ -x /sbin/uci ] || return 0
+
+	uci -q set uhttpd.main.redirect_ssl='0'
+	uci -q set wizard.default.https='0'
+
+	uci -q get nginx._redirect2ssl >/dev/null 2>&1 && {
+		uci -q delete nginx._redirect2ssl
+		logger -t https-off "删除 nginx._redirect2ssl（http→https 302 已关闭）"
+	}
+
+	uci -q commit nginx 2>/dev/null
+	uci -q commit uhttpd 2>/dev/null
+	uci -q commit wizard 2>/dev/null
+
+	# 若 nginx 已生成含 _redirect2ssl 的配置则重载一次
+	[ -x /etc/init.d/nginx ] && /etc/init.d/nginx reload 2>/dev/null
+
+	return 0
+}
+
+stop() {
+	return 0
+}
