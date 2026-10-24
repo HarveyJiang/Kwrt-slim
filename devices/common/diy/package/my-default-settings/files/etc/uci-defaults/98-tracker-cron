@@ -4,9 +4,11 @@
 # 脚本本体放在数据盘 p27（重刷不丢，用户自行放置）：
 #   /mnt/mmcblk0p27/config/aria2/script/tracker.sh
 # 不存在时 cron 条目自动跳过，不产生噪音。
+# 用户 2026-10-24 追加：拉取完 tracker 后必须重启 aria2 才生效（
+# continue=true + session 文件保证下载不丢）；脚本存在即拉取并无条件 restart aria2。
 
 CRON_FILE=/etc/crontabs/root
-CRON_LINE='15 4 * * 7 [ -x /mnt/mmcblk0p27/config/aria2/script/tracker.sh ] && /mnt/mmcblk0p27/config/aria2/script/tracker.sh >/dev/null 2>&1'
+CRON_LINE='15 4 * * 7 if [ -x /mnt/mmcblk0p27/config/aria2/script/tracker.sh ]; then /mnt/mmcblk0p27/config/aria2/script/tracker.sh >/dev/null 2>&1; /etc/init.d/aria2 restart; fi'
 
 [ -d /etc/crontabs ] || mkdir -p /etc/crontabs
 [ -f "$CRON_FILE" ] || : > "$CRON_FILE"
