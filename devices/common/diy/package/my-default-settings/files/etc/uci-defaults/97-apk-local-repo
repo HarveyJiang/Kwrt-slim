@@ -1,0 +1,44 @@
+#!/bin/sh
+# 97-apk-local-repo：开机启用 p27 本地 apk 仓库（用户 2026-10-24 拍板）
+#   把 10.24-packages artifact 解压到 /mnt/mmcblk0p27/apkrepo 后，
+#   本脚本自动把其中带索引（APKINDEX.tar.gz / Packages.adb / Packages）的目录
+#   逐条写进 /etc/apk/repositories.d/local.list，
+#   让所有自编内核 kmod 依赖都能从本地仓库解析，不再报「所有仓库都未提供」。
+#   幂等；目录还没放包时 exit 1，留在 /etc/uci-defaults 等下次开机重试。
+
+REPO=/mnt/mmcblk0p27/apkrepo
+CONF=/etc/apk/repositories.d/local.list
+
+[ -d "$REPO" ] || exit 1
+mkdir -p "$(dirname "$CONF")"
+
+changed=0
+has_index=0
+
+add_repo() {
+	dir="$1"
+	line="file://$dir"
+	if ! grep -qF "$line" "$CONF" 2>/dev/null; then
+		echo "$line" >> "$CONF"
+		changed=1
+	fi
+	has_index=1
+}
+
+# 平铺布局：索引在仓库根
+if [ -f "$REPO/APKINDEX.tar.gz" ] || [ -f "$REPO/Packages.adb" ] || [ -f "$REPO/Packages" ]; then
+	add_repo "$REPO"
+fi
+
+# 多 feed 子目录布局（base/packages/luci/targets 等）
+for idx in "$REPO"/*/APKINDEX.tar.gz "$REPO"/*/Packages.adb "$REPO"/*/Packages; do
+	[ -f "$idx" ] || continue
+	add_repo "$(dirname "$idx")"
+done
+
+# 仓库里还没任何索引 → 保持脚本，等用户把包放进去
+[ "$has_index" -eq 1 ] || exit 1
+
+[ "$changed" -eq 1 ] && [ -x /sbin/apk ] && apk update >/dev/null 2>&1
+logger -t apkrepo "本地 apk 仓库已启用：$REPO"
+exit 0
