@@ -13,6 +13,14 @@ if [ -x /sbin/zoxide ]; then
 	eval "$(/sbin/zoxide init bash 2>/dev/null)"
 fi
 
+# --- fzf（二进制内置 /usr/bin/fzf，官方 shell 集成脚本内置）---
+#   Ctrl+R 模糊搜历史（含预览）；Ctrl+T 模糊选路径；Alt+C 跳目录；
+#   `kill **` / `cd **` / `vim **` 这类 ** 触发模糊补全；z 裸执行也用它出菜单。
+if [ -x /usr/bin/fzf ]; then
+	[ -r /usr/share/fzf/key-bindings.bash ] && . /usr/share/fzf/key-bindings.bash
+	[ -r /usr/share/fzf/completion.bash ] && . /usr/share/fzf/completion.bash
+fi
+
 # --- 前缀历史搜索：输入几个字符再按 ↑/↓，只翻匹配过的命令 ---
 bind '"\e[A":history-search-backward' 2>/dev/null
 bind '"\e[B":history-search-forward' 2>/dev/null
