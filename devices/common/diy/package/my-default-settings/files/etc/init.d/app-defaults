@@ -40,5 +40,27 @@ start() {
 		[ -x /etc/init.d/openlist ] && /etc/init.d/openlist restart >/dev/null 2>&1
 	fi
 
+	# 域名解析：aria2.local / openlist.local → LAN IP（配合 /etc/nginx/conf.d/services.conf 反代）
+	# 用户 2026-10-24 方案 B：LAN 设备用路由器 DNS 即可用域名访问 aria2/openlist（http://aria2.local 等）。
+	# 注意：dns_redirect=0，客户端自填 8.8.8.8 的不会解析这些域名。
+	lanaddr="$(uci -q get network.lan.ipaddr 2>/dev/null | sed 's|/.*||')"
+	[ -n "$lanaddr" ] || lanaddr="10.0.0.1"
+	changed=0
+	for pair in "svc_aria2:aria2.local" "svc_openlist:openlist.local"; do
+		sec="${pair%%:*}"
+		name="${pair##*:}"
+		cur="$(uci -q get dhcp.$sec.name 2>/dev/null)"
+		[ "$cur" = "$name" ] && continue
+		uci -q set "dhcp.$sec=domain"
+		uci -q set "dhcp.$sec.name=$name"
+		uci -q set "dhcp.$sec.ip=$lanaddr"
+		changed=1
+	done
+	if [ "$changed" = 1 ]; then
+		uci -q commit dhcp
+		/etc/init.d/dnsmasq reload >/dev/null 2>&1
+		logger -t app-defaults "dnsmasq 已解析 aria2.local/openlist.local -> $lanaddr"
+	fi
+
 	return 0
 }
