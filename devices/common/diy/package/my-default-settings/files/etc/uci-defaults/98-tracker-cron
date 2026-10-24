@@ -1,0 +1,22 @@
+#!/bin/sh
+# 98-tracker-cron（每次开机执行，幂等）
+# 用户 2026-10-24 要求：每周日 04:15 更新 aria2 tracker，不挂下载钩子。
+# 脚本本体放在数据盘 p27（重刷不丢，用户自行放置）：
+#   /mnt/mmcblk0p27/config/aria2/script/tracker.sh
+# 不存在时 cron 条目自动跳过，不产生噪音。
+
+CRON_FILE=/etc/crontabs/root
+CRON_LINE='15 4 * * 7 [ -x /mnt/mmcblk0p27/config/aria2/script/tracker.sh ] && /mnt/mmcblk0p27/config/aria2/script/tracker.sh >/dev/null 2>&1'
+
+[ -d /etc/crontabs ] || mkdir -p /etc/crontabs
+[ -f "$CRON_FILE" ] || : > "$CRON_FILE"
+
+if ! grep -q 'tracker.sh' "$CRON_FILE" 2>/dev/null; then
+	echo "$CRON_LINE" >> "$CRON_FILE"
+	logger -t tracker-cron "已添加每周日 04:15 tracker 更新任务"
+fi
+
+# busybox cron 默认已启用，这里确保开机自启
+/etc/init.d/cron enable 2>/dev/null
+
+exit 0
