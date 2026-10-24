@@ -2,6 +2,8 @@
 
 # 1. 基础系统与组件链接修正
 [ -x /bin/bash ] && sed -i 's|/bin/ash|/bin/bash|g' /etc/passwd 2>/dev/null && ln -sf /bin/bash /bin/sh 2>/dev/null
+# 保险：确保 bash 登记进 /etc/shells（部分 dropbear 会拒绝列表外的登录 shell）
+[ -x /bin/bash ] && { grep -q '^/bin/bash$' /etc/shells 2>/dev/null || echo /bin/bash >> /etc/shells; }
 [ -x /usr/bin/wget ] && [ ! -x /usr/bin/wget-ssl ] && ln -sf /usr/bin/wget /usr/bin/wget-ssl
 sed -i -e '/profile.d/d' /lib/upgrade/keep.d/base-files \
        -e 's/git-.*-\(.*\)/git-\1/g' /usr/lib/lua/luci/version.lua 2>/dev/null
