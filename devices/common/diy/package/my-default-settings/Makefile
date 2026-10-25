@@ -35,6 +35,7 @@ define Package/$(PKG_NAME)/postinst
 [ -x /etc/init.d/swap ] && /etc/init.d/swap enable
 [ -x /etc/init.d/https-off ] && /etc/init.d/https-off enable
 [ -x /etc/init.d/app-defaults ] && /etc/init.d/app-defaults enable
+[ -x /etc/init.d/leds-off ] && /etc/init.d/leds-off enable
 exit 0
 endef
 

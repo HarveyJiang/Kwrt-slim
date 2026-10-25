@@ -1,0 +1,38 @@
+#!/bin/sh
+# /etc/init.d/leds-off —— 每次开机把状态灯 green:status 置为默认灭（用户 2026-10-24 要求写入固件）
+# 背景：green:status 是 OpenWrt 状态灯（系统就绪时 trigger=none + brightness=1 常亮）。
+# 做法：①在 /etc/config/system 里对所有 sysfs=green:status 的 led 段强制 trigger=none + default=0
+#      （没有对应段则建 named 段 system.status_green，幂等）；②直接 sysfs 把当前这盏灯灭掉。
+# 用 init.d 而非 uci-defaults：防 keep-config 升级时 uci-defaults 脚本被 overlay whiteout
+# 隐藏导致新默认永不重跑（与 https-off / app-defaults 同款注释）。
+
+START=03
+STOP=22
+
+USE_PROCD=1
+
+start() {
+	found=0
+
+	# 1) 所有 sysfs=green:status 的 led 段都强制 default=0 / trigger=none
+	for sec in $(uci -q show system 2>/dev/null | sed -n "s/^system\.\([^.=]*\)\.sysfs='green:status'$/\1/p"); do
+		uci -q set "system.$sec.trigger"='none'
+		uci -q set "system.$sec.default"='0'
+		found=1
+	done
+
+	# 2) 没有对应段则建 named 段（幂等）
+	if [ "$found" != 1 ]; then
+		uci -q set system.status_green=led
+		uci -q set system.status_green.name='Status (Green)'
+		uci -q set system.status_green.sysfs='green:status'
+		uci -q set system.status_green.trigger='none'
+		uci -q set system.status_green.default='0'
+	fi
+	uci -q commit system
+
+	# 3) 立即灭掉当前这盏灯
+	[ -e /sys/class/leds/green:status/brightness ] && echo 0 > /sys/class/leds/green:status/brightness 2>/dev/null
+
+	return 0
+}
